@@ -4,27 +4,54 @@ classdef SupabaseAuth
     
     methods (Static)
         function [success, sessionOrErr, profile] = login(email, password)
-            % Doctor Sign In with Email & Password
+            % Doctor Sign In with Email & Password (Direct RPC with fallback)
             cfg = supabase_config();
             success = false;
             sessionOrErr = '';
             profile = struct();
             
+            cleanEmail = strtrim(char(email));
+            cleanPass  = char(password);
+            
+            % 1. Try High-Reliability Direct Database Authentication
+            payload = struct('p_email', cleanEmail, 'p_password', cleanPass);
+            options = weboptions('HeaderFields', {
+                'apikey',        cfg.anon_key;
+                'Authorization', ['Bearer ', cfg.anon_key];
+                'Content-Type',  'application/json'
+            }, 'MediaType', 'application/json', 'Timeout', cfg.timeout);
+            
+            try
+                raw = webwrite(cfg.rpc_login_url, payload, options);
+                if ischar(raw) || isstring(raw), resp = jsondecode(raw); else, resp = raw; end
+                
+                if isfield(resp, 'status') && strcmp(resp.status, 'success')
+                    success = true;
+                    profile = resp;
+                    sessionOrErr = struct('access_token', 'local_jwt', 'user', struct('id', resp.doctor_id, 'email', resp.email));
+                    return;
+                elseif isfield(resp, 'status') && strcmp(resp.status, 'error')
+                    sessionOrErr = resp.message;
+                    return;
+                end
+            catch
+                % Fall back to standard GoTrue endpoint if RPC is unavailable
+            end
+            
+            % 2. Standard GoTrue Token Endpoint Fallback
             headers = {
                 'apikey',        cfg.anon_key;
                 'Content-Type',  'application/json'
             };
-            options = weboptions('HeaderFields', headers, 'MediaType', 'application/json', 'Timeout', cfg.timeout);
-            payload = struct('email', strtrim(char(email)), 'password', char(password));
+            opt = weboptions('HeaderFields', headers, 'MediaType', 'application/json', 'Timeout', cfg.timeout);
+            fbPayload = struct('email', cleanEmail, 'password', cleanPass);
             
             try
-                raw = webwrite(cfg.auth_token_url, payload, options);
+                raw = webwrite(cfg.auth_token_url, fbPayload, opt);
                 if ischar(raw) || isstring(raw), resp = jsondecode(raw); else, resp = raw; end
                 
                 success = true;
                 sessionOrErr = resp;
-                
-                % Fetch doctor profile
                 userId = resp.user.id;
                 profile = SupabaseAuth.fetchDoctorProfile(userId, resp.access_token);
             catch ME
@@ -33,62 +60,78 @@ classdef SupabaseAuth
         end
         
         function [success, msg, userId] = signup(email, password, doctorData)
-            % Doctor Sign Up with Registration Details
+            % Doctor Registration with Direct Pre-Confirmation (No 429 Rate Limits)
             cfg = supabase_config();
             success = false;
             msg = '';
             userId = '';
             
-            headers = {
-                'apikey',        cfg.anon_key;
-                'Content-Type',  'application/json'
-            };
-            options = weboptions('HeaderFields', headers, 'MediaType', 'application/json', 'Timeout', cfg.timeout);
+            dName     = SupabaseAuth.getFieldSafe(doctorData, 'full_name', 'Doctor');
+            dCode     = SupabaseAuth.getFieldSafe(doctorData, 'doctor_code', 'MCI-PENDING');
+            dSpec     = SupabaseAuth.getFieldSafe(doctorData, 'specialty', 'Ophthalmology');
+            dYears    = int32(SupabaseAuth.getFieldSafe(doctorData, 'years_experience', 5));
+            dHospital = SupabaseAuth.getFieldSafe(doctorData, 'hospital', 'Base Eye Hospital');
+            dPhone    = SupabaseAuth.getFieldSafe(doctorData, 'phone', '');
             
-            payload = struct();
-            payload.email = strtrim(char(email));
-            payload.password = char(password);
+            payload = struct(...
+                'p_email',       strtrim(char(email)), ...
+                'p_password',    char(password), ...
+                'p_full_name',   dName, ...
+                'p_doctor_code', dCode, ...
+                'p_specialty',   dSpec, ...
+                'p_years',       dYears, ...
+                'p_hospital',    dHospital, ...
+                'p_phone',       dPhone ...
+            );
+            
+            options = weboptions('HeaderFields', {
+                'apikey',        cfg.anon_key;
+                'Authorization', ['Bearer ', cfg.anon_key];
+                'Content-Type',  'application/json'
+            }, 'MediaType', 'application/json', 'Timeout', cfg.timeout);
             
             try
-                raw = webwrite(cfg.auth_signup_url, payload, options);
+                raw = webwrite(cfg.rpc_register_url, payload, options);
                 if ischar(raw) || isstring(raw), resp = jsondecode(raw); else, resp = raw; end
                 
-                if isfield(resp, 'id')
-                    userId = resp.id;
-                elseif isfield(resp, 'user') && isfield(resp.user, 'id')
-                    userId = resp.user.id;
+                if isfield(resp, 'status') && strcmp(resp.status, 'success')
+                    success = true;
+                    msg = sprintf('Doctor account registered and activated for %s! You can now sign in immediately.', resp.email);
+                    if isfield(resp, 'user_id'), userId = resp.user_id; end
+                else
+                    msg = resp.message;
                 end
+            catch ME
+                msg = ME.message;
+            end
+        end
+        
+        function [success, msg] = resetPasswordDirect(email, newPassword)
+            % Direct In-App Password Reset (Bypasses email delivery delays)
+            cfg = supabase_config();
+            success = false;
+            
+            payload = struct(...
+                'p_email',        strtrim(char(email)), ...
+                'p_new_password', char(newPassword) ...
+            );
+            
+            options = weboptions('HeaderFields', {
+                'apikey',        cfg.anon_key;
+                'Authorization', ['Bearer ', cfg.anon_key];
+                'Content-Type',  'application/json'
+            }, 'MediaType', 'application/json', 'Timeout', cfg.timeout);
+            
+            try
+                raw = webwrite(cfg.rpc_reset_pw_url, payload, options);
+                if ischar(raw) || isstring(raw), resp = jsondecode(raw); else, resp = raw; end
                 
-                % Upsert Doctor Profile in public.profiles
-                if ~isempty(userId)
-                    dName     = SupabaseAuth.getFieldSafe(doctorData, 'full_name', 'Doctor');
-                    dCode     = SupabaseAuth.getFieldSafe(doctorData, 'doctor_code', 'MCI-PENDING');
-                    dSpec     = SupabaseAuth.getFieldSafe(doctorData, 'specialty', 'Ophthalmology');
-                    dYears    = int32(SupabaseAuth.getFieldSafe(doctorData, 'years_experience', 5));
-                    dHospital = SupabaseAuth.getFieldSafe(doctorData, 'hospital', 'Base Eye Hospital');
-                    dPhone    = SupabaseAuth.getFieldSafe(doctorData, 'phone', '');
-                    
-                    profilePayload = struct(...
-                        'p_user_id',     userId, ...
-                        'p_full_name',   dName, ...
-                        'p_doctor_code', dCode, ...
-                        'p_specialty',   dSpec, ...
-                        'p_years',       dYears, ...
-                        'p_hospital',    dHospital, ...
-                        'p_phone',       dPhone ...
-                    );
-                    
-                    rpcOpt = weboptions('HeaderFields', {
-                        'apikey',        cfg.anon_key;
-                        'Authorization', ['Bearer ', cfg.anon_key];
-                        'Content-Type',  'application/json'
-                    }, 'MediaType', 'application/json', 'Timeout', cfg.timeout);
-                    
-                    webwrite(cfg.rpc_profile_url, profilePayload, rpcOpt);
+                if isfield(resp, 'status') && strcmp(resp.status, 'success')
+                    success = true;
+                    msg = resp.message;
+                else
+                    msg = resp.message;
                 end
-                
-                success = true;
-                msg = 'Registration successful! Doctor profile created.';
             catch ME
                 msg = ME.message;
             end
@@ -109,11 +152,13 @@ classdef SupabaseAuth
             try
                 webwrite(cfg.auth_recover_url, payload, options);
                 success = true;
-                msg = sprintf('Password recovery link sent to %s. Please check your inbox.', char(email));
+                msg = sprintf('Password recovery link dispatched to %s. Please check your inbox and Spam folder.', char(email));
             catch ME
                 if contains(ME.message, '429') || contains(ME.message, 'Too Many Requests')
                     success = true;
-                    msg = sprintf('Recovery link triggered for %s (Rate-limited on test SMTP; please check your inbox or wait 60s).', char(email));
+                    msg = sprintf(['Recovery link request received for %s.\n\n', ...
+                        'Note: Free tier SMTP has a 3-email/hr rate limit. ', ...
+                        'If email is not received, use the "Instant Password Reset" tab to reset immediately.'], char(email));
                 else
                     msg = ME.message;
                 end
@@ -134,12 +179,22 @@ classdef SupabaseAuth
             try
                 raw = webwrite(cfg.rpc_queue_url, struct(), options);
                 if ischar(raw) || isstring(raw)
-                    queue = jsondecode(raw);
+                    decoded = jsondecode(raw);
                 else
-                    queue = raw;
+                    decoded = raw;
+                end
+                
+                % Guarantee queue is ALWAYS returned as a cell array
+                if isstruct(decoded)
+                    queue = num2cell(decoded);
+                elseif iscell(decoded)
+                    queue = decoded;
+                else
+                    queue = {};
                 end
             catch ME
                 fprintf('[SUPABASE QUEUE ERROR] %s\n', ME.message);
+                queue = {};
             end
         end
         

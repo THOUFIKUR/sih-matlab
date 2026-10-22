@@ -15,7 +15,12 @@ cfg.auth_token_url   = [cfg.project_url, '/auth/v1/token?grant_type=password'];
 cfg.auth_signup_url  = [cfg.project_url, '/auth/v1/signup'];
 cfg.auth_recover_url = [cfg.project_url, '/auth/v1/recover'];
 
-% RPC Data Endpoints
+% High-Reliability Direct RPC Endpoints (Bypasses 429 SMTP rate limits)
+cfg.rpc_login_url    = [cfg.project_url, '/rest/v1/rpc/matlab_doctor_login'];
+cfg.rpc_register_url = [cfg.project_url, '/rest/v1/rpc/matlab_register_doctor_account'];
+cfg.rpc_reset_pw_url = [cfg.project_url, '/rest/v1/rpc/matlab_direct_reset_password'];
+
+% Data & Tele-Review Endpoints
 cfg.rpc_sync_url     = [cfg.project_url, '/rest/v1/rpc/matlab_sync_case'];
 cfg.rpc_fetch_url    = [cfg.project_url, '/rest/v1/rpc/matlab_fetch_case'];
 cfg.rpc_queue_url    = [cfg.project_url, '/rest/v1/rpc/matlab_get_tele_review_queue'];

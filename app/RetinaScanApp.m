@@ -88,7 +88,7 @@ classdef RetinaScanApp < handle
         IsDoctorLoggedIn     logical = false
         DoctorStatusLabel    matlab.ui.control.Label
         QueueToggleDropDown  matlab.ui.control.DropDown
-        CloudQueueData       cell = {}
+        CloudQueueData       = {}
         SubmitCloudReviewBtn matlab.ui.control.Button
         
         % Storage & Paths
@@ -1425,12 +1425,18 @@ classdef RetinaScanApp < handle
             end
             rowIdx = s(1);
             if rowIdx <= size(tbl.Data, 1) && ~isempty(tbl.Data{rowIdx, 1})
-                % If in Cloud Queue mode, column 2 is Case ID; in local mode, column 1 is Case ID
-                if isprop(app, 'QueueToggleDropDown') && isvalid(app.QueueToggleDropDown) && ...
-                        contains(app.QueueToggleDropDown.Value, 'Cloud Tele-Review')
-                    cID = tbl.Data{rowIdx, 2};
-                else
-                    cID = tbl.Data{rowIdx, 1};
+                % Robust Case ID extraction: search row cells for RS- prefix
+                cID = '';
+                rowCells = tbl.Data(rowIdx, :);
+                for c = 1:numel(rowCells)
+                    val = rowCells{c};
+                    if (ischar(val) || isstring(val)) && startsWith(strtrim(char(val)), 'RS-')
+                        cID = strtrim(char(val));
+                        break;
+                    end
+                end
+                if isempty(cID) && ~isempty(rowCells{1})
+                    cID = strtrim(char(rowCells{1}));
                 end
                 
                 if ~strcmp(cID, '--')
@@ -2363,7 +2369,7 @@ classdef RetinaScanApp < handle
         function openDoctorAuthModal(app)
             fig = app.UIFigure;
             fPos = fig.Position;
-            dlgW = 500; dlgH = 540;
+            dlgW = 520; dlgH = 560;
             dlgX = fPos(1) + (fPos(3) - dlgW) / 2;
             dlgY = fPos(2) + (fPos(4) - dlgH) / 2;
 
@@ -2377,92 +2383,123 @@ classdef RetinaScanApp < handle
             % --- TAB 1: DOCTOR SIGN IN ---
             tabLogin = uitab(tg, 'Title', 'Doctor Sign In');
             uilabel(tabLogin, 'Text', 'Ophthalmologist Cloud Login', ...
-                'Position', [20, dlgH - 90, 440, 28], 'FontSize', 15, 'FontWeight', 'bold', 'FontColor', [0.1, 0.35, 0.65]);
+                'Position', [20, dlgH - 90, 360, 28], 'FontSize', 15, 'FontWeight', 'bold', 'FontColor', [0.1, 0.35, 0.65]);
+            
+            uibutton(tabLogin, 'push', 'Text', '✖ Close', ...
+                'Position', [dlgW - 130, dlgH - 90, 85, 26], ...
+                'ButtonPushedFcn', @(~, ~) delete(dlg));
+
             uilabel(tabLogin, 'Text', 'Secure access to patient tele-review queues & clinical verification.', ...
                 'Position', [20, dlgH - 115, 440, 20], 'FontSize', 10, 'FontColor', [0.4, 0.4, 0.4]);
 
             uilabel(tabLogin, 'Text', 'Doctor Email Address *:', 'Position', [20, dlgH - 165, 200, 22], 'FontWeight', 'bold');
-            emailFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 192, 440, 28], ...
-                'Placeholder', 'doctor@hospital.org', 'Value', 'doctor.sih@retinascan.ai');
+            emailFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 192, 460, 28], ...
+                'Placeholder', 'doctor@hospital.org', 'Value', 'thoufikurrahaman@gmail.com');
 
             uilabel(tabLogin, 'Text', 'Password *:', 'Position', [20, dlgH - 235, 200, 22], 'FontWeight', 'bold');
-            passFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 262, 440, 28], ...
-                'Placeholder', 'Enter secure password', 'Value', 'DoctorSecurePass2026!');
+            passFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 262, 460, 28], ...
+                'Placeholder', 'Enter secure password', 'Value', 'Doctor2026!');
 
             uibutton(tabLogin, 'push', ...
                 'Text', '✔ Sign In & Access Tele-Review Portal', ...
-                'Position', [20, dlgH - 325, 440, 38], ...
+                'Position', [20, dlgH - 325, 460, 38], ...
                 'BackgroundColor', [0.08, 0.45, 0.35], 'FontColor', [1, 1, 1], ...
                 'FontWeight', 'bold', 'FontSize', 12, ...
                 'ButtonPushedFcn', @(~, ~) handleDoctorLogin(app, dlg, emailFld, passFld));
 
             uilabel(tabLogin, 'Text', 'Need to reset your password or register a new doctor profile?', ...
-                'Position', [20, dlgH - 370, 440, 20], 'FontSize', 10, 'FontColor', [0.5, 0.5, 0.5]);
+                'Position', [20, dlgH - 370, 460, 20], 'FontSize', 10, 'FontColor', [0.5, 0.5, 0.5]);
 
             % Pre-declare tabRecover and tabSignup so callbacks can navigate
             tabRecover = uitab(tg, 'Title', 'Forgot Password');
             tabSignup = uitab(tg, 'Title', 'New Doctor Register');
 
-            uibutton(tabLogin, 'push', 'Text', 'Forgot Password? (Email Recovery)', ...
-                'Position', [20, dlgH - 410, 215, 28], ...
+            uibutton(tabLogin, 'push', 'Text', 'Forgot Password? (Reset Link)', ...
+                'Position', [20, dlgH - 410, 225, 28], ...
                 'ButtonPushedFcn', @(~, ~) set(tg, 'SelectedTab', tabRecover));
 
             uibutton(tabLogin, 'push', 'Text', 'New Doctor? Register Here', ...
-                'Position', [245, dlgH - 410, 215, 28], ...
+                'Position', [255, dlgH - 410, 225, 28], ...
                 'ButtonPushedFcn', @(~, ~) set(tg, 'SelectedTab', tabSignup));
+
+            uibutton(tabLogin, 'push', 'Text', 'Cancel & Return to Screening App', ...
+                'Position', [20, dlgH - 460, 460, 28], ...
+                'ButtonPushedFcn', @(~, ~) delete(dlg));
 
             % --- TAB 2: DOCTOR REGISTRATION ---
             uilabel(tabSignup, 'Text', 'Register Specialist Profile', ...
-                'Position', [20, dlgH - 90, 440, 26], 'FontSize', 14, 'FontWeight', 'bold', 'FontColor', [0.1, 0.35, 0.65]);
+                'Position', [20, dlgH - 90, 360, 26], 'FontSize', 14, 'FontWeight', 'bold', 'FontColor', [0.1, 0.35, 0.65]);
 
-            uilabel(tabSignup, 'Text', 'Full Name *:', 'Position', [20, dlgH - 130, 140, 20]);
-            sNameFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 152, 210, 26], 'Placeholder', 'Dr. Ramesh Kumar, MD');
+            uibutton(tabSignup, 'push', 'Text', '✖ Close', ...
+                'Position', [dlgW - 130, dlgH - 90, 85, 26], ...
+                'ButtonPushedFcn', @(~, ~) delete(dlg));
 
-            uilabel(tabSignup, 'Text', 'Doctor MCI / Reg ID *:', 'Position', [250, dlgH - 130, 160, 20]);
-            sCodeFld = uieditfield(tabSignup, 'text', 'Position', [250, dlgH - 152, 210, 26], 'Placeholder', 'MCI-2026-XXXX');
+            uilabel(tabSignup, 'Text', 'Full Name *:', 'Position', [20, dlgH - 125, 140, 20]);
+            sNameFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 147, 220, 26], 'Placeholder', 'Dr. Thoufikur Rahaman, MD');
 
-            uilabel(tabSignup, 'Text', 'Official Email *:', 'Position', [20, dlgH - 190, 140, 20]);
-            sEmailFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 212, 210, 26], 'Placeholder', 'doctor@hospital.org');
+            uilabel(tabSignup, 'Text', 'Doctor MCI / Reg ID *:', 'Position', [260, dlgH - 125, 160, 20]);
+            sCodeFld = uieditfield(tabSignup, 'text', 'Position', [260, dlgH - 147, 220, 26], 'Placeholder', 'MCI-2026-XXXX');
 
-            uilabel(tabSignup, 'Text', 'Password *:', 'Position', [250, dlgH - 190, 140, 20]);
-            sPassFld = uieditfield(tabSignup, 'text', 'Position', [250, dlgH - 212, 210, 26], 'Placeholder', 'Minimum 8 characters');
+            uilabel(tabSignup, 'Text', 'Official Email *:', 'Position', [20, dlgH - 185, 140, 20]);
+            sEmailFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 207, 220, 26], 'Placeholder', 'doctor@hospital.org');
 
-            uilabel(tabSignup, 'Text', 'Specialty *:', 'Position', [20, dlgH - 250, 140, 20]);
-            sSpecFld = uidropdown(tabSignup, 'Position', [20, dlgH - 272, 210, 26], ...
+            uilabel(tabSignup, 'Text', 'Password *:', 'Position', [260, dlgH - 185, 140, 20]);
+            sPassFld = uieditfield(tabSignup, 'text', 'Position', [260, dlgH - 207, 220, 26], 'Placeholder', 'Minimum 8 characters');
+
+            uilabel(tabSignup, 'Text', 'Specialty *:', 'Position', [20, dlgH - 245, 140, 20]);
+            sSpecFld = uidropdown(tabSignup, 'Position', [20, dlgH - 267, 220, 26], ...
                 'Items', {'Vitreo-Retina Specialist', 'General Ophthalmologist', 'Diabetic Retinopathy Fellow', 'Consultant Diabetologist'}, ...
                 'Value', 'Vitreo-Retina Specialist');
 
-            uilabel(tabSignup, 'Text', 'Experience (Years):', 'Position', [250, dlgH - 250, 140, 20]);
-            sYrsFld = uieditfield(tabSignup, 'numeric', 'Position', [250, dlgH - 272, 210, 26], 'Value', 8);
+            uilabel(tabSignup, 'Text', 'Experience (Years):', 'Position', [260, dlgH - 245, 140, 20]);
+            sYrsFld = uieditfield(tabSignup, 'numeric', 'Position', [260, dlgH - 267, 220, 26], 'Value', 8);
 
-            uilabel(tabSignup, 'Text', 'Base Hospital / Clinic *:', 'Position', [20, dlgH - 310, 200, 20]);
-            sHospFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 332, 440, 26], 'Placeholder', 'Regional Eye Institute, Medical College');
+            uilabel(tabSignup, 'Text', 'Base Hospital / Clinic *:', 'Position', [20, dlgH - 305, 200, 20]);
+            sHospFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 327, 460, 26], 'Placeholder', 'Regional Eye Institute, Medical College');
 
-            uilabel(tabSignup, 'Text', 'Phone (Tele-Consultations):', 'Position', [20, dlgH - 370, 200, 20]);
-            sPhoneFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 392, 440, 26], 'Placeholder', '+91-98XXXXXXXX');
+            uilabel(tabSignup, 'Text', 'Phone (Tele-Consultations):', 'Position', [20, dlgH - 365, 200, 20]);
+            sPhoneFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 387, 460, 26], 'Placeholder', '+91-98XXXXXXXX');
 
             uibutton(tabSignup, 'push', ...
                 'Text', '✔ Register Doctor & Save to Cloud', ...
-                'Position', [20, dlgH - 450, 440, 36], ...
+                'Position', [20, dlgH - 440, 460, 36], ...
                 'BackgroundColor', [0.12, 0.35, 0.65], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(~, ~) handleDoctorSignup(app, dlg, sEmailFld, sPassFld, sNameFld, sCodeFld, sSpecFld, sYrsFld, sHospFld, sPhoneFld));
 
             % --- TAB 3: PASSWORD RECOVERY ---
             uilabel(tabRecover, 'Text', 'Doctor Password Recovery', ...
-                'Position', [20, dlgH - 90, 440, 26], 'FontSize', 14, 'FontWeight', 'bold', 'FontColor', [0.8, 0.2, 0.1]);
-            uilabel(tabRecover, 'Text', ['Enter your registered email address below. Supabase will send a secure ', ...
-                'password recovery and authentication link directly to your inbox.'], ...
-                'Position', [20, dlgH - 145, 440, 40], 'WordWrap', 'on', 'FontSize', 11);
+                'Position', [20, dlgH - 90, 360, 26], 'FontSize', 14, 'FontWeight', 'bold', 'FontColor', [0.8, 0.2, 0.1]);
 
-            uilabel(tabRecover, 'Text', 'Registered Doctor Email *:', 'Position', [20, dlgH - 195, 200, 22], 'FontWeight', 'bold');
-            rEmailFld = uieditfield(tabRecover, 'text', 'Position', [20, dlgH - 222, 440, 28], ...
-                'Placeholder', 'doctor@hospital.org');
+            uibutton(tabRecover, 'push', 'Text', '✖ Close', ...
+                'Position', [dlgW - 130, dlgH - 90, 85, 26], ...
+                'ButtonPushedFcn', @(~, ~) delete(dlg));
+
+            uilabel(tabRecover, 'Text', ['Enter your registered email address below. You can either reset your password ', ...
+                'instantly in-app or dispatch an email recovery link via Supabase Auth.'], ...
+                'Position', [20, dlgH - 145, 460, 36], 'WordWrap', 'on', 'FontSize', 10);
+
+            uilabel(tabRecover, 'Text', 'Registered Doctor Email *:', 'Position', [20, dlgH - 185, 200, 20], 'FontWeight', 'bold');
+            rEmailFld = uieditfield(tabRecover, 'text', 'Position', [20, dlgH - 207, 460, 28], ...
+                'Placeholder', 'doctor@hospital.org', 'Value', 'thoufikurrahaman@gmail.com');
+
+            uilabel(tabRecover, 'Text', 'New Password (for instant in-app reset):', 'Position', [20, dlgH - 245, 300, 20], 'FontWeight', 'bold');
+            rNewPassFld = uieditfield(tabRecover, 'text', 'Position', [20, dlgH - 267, 460, 28], ...
+                'Placeholder', 'Enter new secure password', 'Value', 'Doctor2026!');
 
             uibutton(tabRecover, 'push', ...
-                'Text', '✉ Send Recovery Link to Email', ...
-                'Position', [20, dlgH - 280, 440, 36], ...
-                'BackgroundColor', [0.8, 0.3, 0.1], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
+                'Text', '🔑 Reset Password Instantly (Recommended - No Email Delay)', ...
+                'Position', [20, dlgH - 320, 460, 36], ...
+                'BackgroundColor', [0.08, 0.45, 0.35], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~, ~) handleDoctorDirectReset(app, dlg, rEmailFld, rNewPassFld));
+
+            uibutton(tabRecover, 'push', ...
+                'Text', '✉ Dispatch Email Recovery Link (Supabase Auth)', ...
+                'Position', [20, dlgH - 370, 460, 32], ...
                 'ButtonPushedFcn', @(~, ~) handleDoctorPasswordReset(app, rEmailFld));
+
+            uibutton(tabRecover, 'push', 'Text', 'Cancel & Return to Screening App', ...
+                'Position', [20, dlgH - 425, 460, 28], ...
+                'ButtonPushedFcn', @(~, ~) delete(dlg));
         end
 
         function handleDoctorLogin(app, dlg, emailFld, passFld)
@@ -2536,7 +2573,7 @@ classdef RetinaScanApp < handle
                 'hospital', hosp, ...
                 'phone', strtrim(phoneFld.Value));
 
-            d = showProgress(app, 'Registering Doctor Profile', 'Registering credentials with Supabase Auth...');
+            d = showProgress(app, 'Registering Doctor Profile', 'Saving doctor credentials to Supabase...');
             [ok, msg] = SupabaseAuth.signup(email, pass, docData);
             closeProgress(app, d);
 
@@ -2545,6 +2582,26 @@ classdef RetinaScanApp < handle
                     '%s\n\nPlease switch to the "Doctor Sign In" tab to authenticate.'], msg), 'Registration Success');
             else
                 uialert(dlg, sprintf('Registration encountered an error:\n%s', msg), 'Registration Failed');
+            end
+        end
+
+        function handleDoctorDirectReset(app, dlg, emailFld, newPassFld)
+            email = strtrim(emailFld.Value);
+            newP  = strtrim(newPassFld.Value);
+            if isempty(email) || isempty(newP)
+                uialert(dlg, 'Please enter both your registered email and new password.', 'Validation Error');
+                return;
+            end
+
+            d = showProgress(app, 'Resetting Password', 'Updating password in Supabase cloud...');
+            [ok, msg] = SupabaseAuth.resetPasswordDirect(email, newP);
+            closeProgress(app, d);
+
+            if ok
+                uialert(dlg, sprintf(['Password Successfully Reset!\n\n', ...
+                    '%s\n\nPlease switch to the "Doctor Sign In" tab to log in.'], msg), 'Password Reset Complete');
+            else
+                uialert(dlg, sprintf('Password reset failed:\n%s', msg), 'Reset Error');
             end
         end
 
@@ -2585,6 +2642,9 @@ classdef RetinaScanApp < handle
             try
                 q = SupabaseAuth.fetchTeleReviewQueue();
                 closeProgress(app, d);
+                if ~iscell(q)
+                    q = num2cell(q);
+                end
                 app.CloudQueueData = q;
                 
                 if isempty(q)
@@ -2597,11 +2657,19 @@ classdef RetinaScanApp < handle
                 n = numel(q);
                 cData = cell(n, 7);
                 for i = 1:n
-                    item = q{i};
-                    if isstruct(q) && numel(q) > 1, item = q(i); end
+                    if iscell(q)
+                        item = q{i};
+                    else
+                        item = q(i);
+                    end
                     
                     % Format Priority Icon
                     prio = 'ROUTINE';
+                    if isfield(item, 'priority'), prio = upper(item.priority); end
+                    if strcmp(prio, 'URGENT'), prioStr = '🔴 URGENT';
+                    elseif strcmp(prio, 'PRIORITY'), prioStr = '🟠 PRIORITY';
+                    else, prioStr = '🟢 ROUTINE';
+                    end
                     if isfield(item, 'priority'), prio = upper(item.priority); end
                     if strcmp(prio, 'URGENT'), prioStr = '🔴 URGENT';
                     elseif strcmp(prio, 'PRIORITY'), prioStr = '🟠 PRIORITY';
