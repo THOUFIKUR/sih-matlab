@@ -1240,6 +1240,12 @@ classdef RetinaScanApp < handle
                 
                 patients = reg; %#ok<NASGU>
                 save(app.RegistryFilePath, 'patients');
+                
+                % Background Cloud Sync to Supabase (Fail-Safe Offline Mode)
+                try
+                    sync_case_to_supabase(caseData);
+                catch
+                end
             end
         end
 
