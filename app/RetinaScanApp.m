@@ -145,6 +145,10 @@ classdef RetinaScanApp < handle
         GradeBannerLabel       matlab.ui.control.Label
         ReferralBannerLabel    matlab.ui.control.Label
         LesionCountTable       matlab.ui.control.Table
+        ScreeningRightTabGroup matlab.ui.container.TabGroup
+        VisitHistorySubTab     matlab.ui.container.Tab
+        VisitsHistoryTable     matlab.ui.control.Table
+        PatientHistorySummaryLabel matlab.ui.control.Label
         
         % UI Components - Page 5: Clinician Review & Report
         ReviewerPresetDropDown matlab.ui.control.DropDown
@@ -491,8 +495,8 @@ classdef RetinaScanApp < handle
 
             app.PatientTable = uitable(recordsPanel, ...
                 'Data', cell(0, 7), ...
-                'ColumnName', {'Case ID', 'Name', 'Age', 'Gender', 'Contact', 'Images', 'Status'}, ...
-                'ColumnWidth', {90, 120, 45, 55, 95, 75, 95}, ...
+                'ColumnName', {'Case ID', 'Name', 'Age / Gender', 'Contact', 'Visit Sequence', 'Registered / Last Visit (Date & Time)', 'Status'}, ...
+                'ColumnWidth', {90, 115, 80, 95, 115, 160, 90}, ...
                 'Position', [10, 50, regW - 22, h - 165]);
 
             uibutton(recordsPanel, 'push', ...
@@ -725,16 +729,22 @@ classdef RetinaScanApp < handle
             app.ShowLabelsCheckBox = uicheckbox(legPanel, 'Text', 'Labels', 'Value', true, ...
                 'Position', [600, 12, 55, 22], 'ValueChangedFcn', @(~, ~) updateScreeningViewForActiveEye(app));
 
-            % Right: Probability Table & Lesions Table
+            % Right: Tab Group with [1] AI Diagnostics & Lesions, and [2] Patient Visit History & Reports
             rightX = leftW + 30;
             rightW = w - rightX - 15;
+            tabH = h - 110;
             
-            probPanel = uipanel(p, 'Title', '5-Class DR Stage Probability & Clinical Interpretation', ...
-                'Position', [rightX, h - 250, rightW, 180], 'FontWeight', 'bold');
+            app.ScreeningRightTabGroup = uitabgroup(p, 'Position', [rightX, 48, rightW, tabH]);
+            
+            % --- SUB-TAB 1: DR Stage & Detected Lesions ---
+            tabAI = uitab(app.ScreeningRightTabGroup, 'Title', '🔬 DR Stage & Lesions');
+            
+            probPanel = uipanel(tabAI, 'Title', '5-Class DR Stage Probability & Clinical Interpretation', ...
+                'Position', [5, tabH - 215, rightW - 12, 185], 'FontWeight', 'bold');
             
             app.UncertaintyWarningLabel = uilabel(probPanel, ...
                 'Text', 'Awaiting inference: Load fundus image and run AI analysis.', ...
-                'Position', [10, 130, rightW - 20, 25], ...
+                'Position', [10, 138, rightW - 32, 22], ...
                 'FontSize', 9.5, 'FontWeight', 'bold', 'FontColor', [0.4, 0.4, 0.4]);
                 
             app.GradeProbTable = uitable(probPanel, ...
@@ -747,21 +757,46 @@ classdef RetinaScanApp < handle
                 }, ...
                 'ColumnName', {'Stage', 'Score', 'Clinical Hallmark'}, ...
                 'ColumnWidth', {120, 55, 180}, ...
-                'Position', [8, 8, rightW - 16, 120]);
+                'Position', [8, 8, rightW - 28, 128]);
 
             % Lesion Candidates Table & Grad-CAM Notice
-            lesionPanel = uipanel(p, 'Title', 'Detected Lesion Candidates (Object Detection)', ...
-                'Position', [rightX, 52, rightW, h - 310], 'FontWeight', 'bold');
+            lesionPanel = uipanel(tabAI, 'Title', 'Detected Lesion Candidates (Object Detection)', ...
+                'Position', [5, 8, rightW - 12, tabH - 228], 'FontWeight', 'bold');
                 
             app.LesionCountTable = uitable(lesionPanel, ...
                 'Data', {'Microaneurysms (MA)', 0; 'Haemorrhages (HE)', 0; 'Hard Exudates (EX)', 0; 'Soft Exudates (SE)', 0; 'TOTAL CANDIDATES', 0}, ...
                 'ColumnName', {'Lesion Category', 'Count'}, ...
                 'ColumnWidth', {200, 90}, ...
-                'Position', [10, 35, rightW - 24, h - 390]);
+                'Position', [10, 35, rightW - 32, max(50, tabH - 295)]);
 
             uilabel(lesionPanel, ...
                 'Text', 'Explainability Note: Visual localization is provided by YOLO object bounding boxes. (ONNX runtime lacks backward autograd for Grad-CAM; retina_model.onnx has uncalibrated scratch weights).', ...
-                'Position', [10, 6, rightW - 24, 25], 'WordWrap', 'on', 'FontSize', 8.5, 'FontColor', [0.4, 0.4, 0.4]);
+                'Position', [10, 6, rightW - 32, 25], 'WordWrap', 'on', 'FontSize', 8.5, 'FontColor', [0.4, 0.4, 0.4]);
+
+            % --- SUB-TAB 2: Patient Longitudinal History & Past Reports ---
+            app.VisitHistorySubTab = uitab(app.ScreeningRightTabGroup, 'Title', '🗓 Patient History (Visits: 1)');
+            
+            app.PatientHistorySummaryLabel = uilabel(app.VisitHistorySubTab, ...
+                'Text', 'Patient Visit History: Initial Baseline Encounter (1 Visit)', ...
+                'Position', [10, tabH - 58, rightW - 20, 24], ...
+                'FontWeight', 'bold', 'FontSize', 11, 'FontColor', [0.1, 0.35, 0.65]);
+                
+            app.VisitsHistoryTable = uitable(app.VisitHistorySubTab, ...
+                'Data', {'Visit #1', datestr(now, 'dd-mmm-yyyy HH:MM'), '--', '--', 'Pending Clinician', 'Active Intake'}, ...
+                'ColumnName', {'Visit', 'Date & Time', 'OD Grade', 'OS Grade', 'Reviewer', 'Decision'}, ...
+                'ColumnWidth', {70, 130, 110, 110, 120, 110}, ...
+                'Position', [10, 52, rightW - 20, tabH - 118]);
+
+            uibutton(app.VisitHistorySubTab, 'push', ...
+                'Text', '📄 View & Verify Selected Visit Report', ...
+                'Position', [10, 12, 260, 32], ...
+                'BackgroundColor', [0.12, 0.35, 0.65], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~, ~) viewSelectedVisitReportCallback(app));
+
+            uibutton(app.VisitHistorySubTab, 'push', ...
+                'Text', '📂 Open Reports Folder', ...
+                'Position', [280, 12, 170, 32], ...
+                'ButtonPushedFcn', @(~, ~) openReportsFolder(app));
 
             % Bottom Navigation Bar
             bNav = uipanel(p, 'Position', [15, 10, w - 30, 40], 'BorderType', 'none');
@@ -1492,8 +1527,8 @@ classdef RetinaScanApp < handle
         % Storage & Persistence Layer
         function initRegistryStorage(app)
             if ~isfile(app.RegistryFilePath)
-                patients = table({}, {}, [], {}, {}, {}, {}, {}, ...
-                    'VariableNames', {'CaseID', 'Name', 'Age', 'Gender', 'Contact', 'DM_Duration', 'HbA1c', 'Status'});
+                patients = table({}, {}, [], {}, {}, {}, {}, {}, [], {}, ...
+                    'VariableNames', {'CaseID', 'Name', 'Age', 'Gender', 'Contact', 'DM_Duration', 'HbA1c', 'Status', 'VisitCount', 'LastVisitDate'});
                 save(app.RegistryFilePath, 'patients');
             end
         end
@@ -1502,6 +1537,12 @@ classdef RetinaScanApp < handle
             initRegistryStorage(app);
             s = load(app.RegistryFilePath, 'patients');
             reg = s.patients;
+            if ~ismember('VisitCount', reg.Properties.VariableNames)
+                reg.VisitCount = ones(height(reg), 1);
+            end
+            if ~ismember('LastVisitDate', reg.Properties.VariableNames)
+                reg.LastVisitDate = repmat({datestr(now, 'dd-mmm-yyyy HH:MM:SS')}, height(reg), 1);
+            end
         end
 
         function saveActiveCase(app)
@@ -1549,7 +1590,7 @@ classdef RetinaScanApp < handle
             % Record current visit non-destructively
             thisVisit = struct();
             thisVisit.VisitNumber = app.CurrentVisitCount;
-            thisVisit.Date = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+            thisVisit.Date = datestr(now, 'dd-mmm-yyyy HH:MM:SS');
             thisVisit.QualityOD = app.QualityStatusOD;
             thisVisit.QualityOS = app.QualityStatusOS;
             thisVisit.GradeOD = 'Not Screened';
@@ -1603,9 +1644,13 @@ classdef RetinaScanApp < handle
                 if isfield(app.ClassificationOD, 'predicted_label') || isfield(app.ClassificationOS, 'predicted_label'), statusStr = 'Screened'; end
                 if app.ReviewSaved, statusStr = 'Reviewed'; end
                 
+                visitNum = app.CurrentVisitCount;
+                lastVisitStr = datestr(now, 'dd-mmm-yyyy HH:MM:SS');
+
                 newRow = table({app.CurrentCaseID}, {app.CurrentPatientName}, app.CurrentPatientAge, ...
                     {app.CurrentPatientGender}, {app.CurrentContact}, {dmStr}, {hbStr}, {statusStr}, ...
-                    'VariableNames', {'CaseID', 'Name', 'Age', 'Gender', 'Contact', 'DM_Duration', 'HbA1c', 'Status'});
+                    visitNum, {lastVisitStr}, ...
+                    'VariableNames', {'CaseID', 'Name', 'Age', 'Gender', 'Contact', 'DM_Duration', 'HbA1c', 'Status', 'VisitCount', 'LastVisitDate'});
                 
                 if isempty(matchIdx)
                     reg = [reg; newRow];
@@ -1807,7 +1852,7 @@ classdef RetinaScanApp < handle
             n = height(reg);
             
             if n == 0
-                app.PatientTable.Data = {'--', 'No patients registered yet', [], '--', '--', '--', 'Pending Intake'};
+                app.PatientTable.Data = {'--', 'No patients registered yet', '--', '--', '--', '--', 'Pending Intake'};
                 app.OverviewCasesTable.Data = {'--', 'No saved cases yet', '--', '--', '--'};
                 app.OverviewSummaryLabel.Text = 'Database: 0 registered cases  |  Ready for patient intake.';
             else
@@ -1816,10 +1861,24 @@ classdef RetinaScanApp < handle
                 for i = 1:n
                     pData{i, 1} = reg.CaseID{i};
                     pData{i, 2} = reg.Name{i};
-                    pData{i, 3} = reg.Age(i);
-                    pData{i, 4} = reg.Gender{i};
-                    pData{i, 5} = reg.Contact{i};
-                    pData{i, 6} = 'OD/OS Stored';
+                    pData{i, 3} = sprintf('%d / %s', reg.Age(i), reg.Gender{i});
+                    pData{i, 4} = reg.Contact{i};
+                    
+                    vCount = 1;
+                    if ismember('VisitCount', reg.Properties.VariableNames) && ~isnan(reg.VisitCount(i))
+                        vCount = reg.VisitCount(i);
+                    end
+                    if vCount > 1
+                        pData{i, 5} = sprintf('Visit #%d (Returning)', vCount);
+                    else
+                        pData{i, 5} = 'Visit #1';
+                    end
+                    
+                    if ismember('LastVisitDate', reg.Properties.VariableNames) && ~isempty(reg.LastVisitDate{i})
+                        pData{i, 6} = reg.LastVisitDate{i};
+                    else
+                        pData{i, 6} = datestr(now, 'dd-mmm-yyyy HH:MM:SS');
+                    end
                     pData{i, 7} = reg.Status{i};
                 end
                 app.PatientTable.Data = pData;
@@ -2245,6 +2304,133 @@ classdef RetinaScanApp < handle
                     'TOTAL CANDIDATES',    0
                 };
             end
+            
+            % Update Longitudinal History Tab on Page 4
+            updateVisitHistoryTab(app);
+        end
+
+        function updateVisitHistoryTab(app)
+            if ~isprop(app, 'VisitsHistoryTable') || isempty(app.VisitsHistoryTable) || ~isvalid(app.VisitsHistoryTable)
+                return;
+            end
+            
+            vCount = app.CurrentVisitCount;
+            if iscell(app.VisitsHistory) && ~isempty(app.VisitsHistory)
+                vCount = max(vCount, length(app.VisitsHistory));
+            end
+            
+            pName = app.CurrentPatientName;
+            if isempty(pName), pName = 'New Patient'; end
+            cID = app.CurrentCaseID;
+            if isempty(cID), cID = 'RS-DRAFT'; end
+            
+            if isprop(app, 'VisitHistorySubTab') && isvalid(app.VisitHistorySubTab)
+                if vCount > 1
+                    app.VisitHistorySubTab.Title = sprintf('🗓 Visit History (Visits: %d)', vCount);
+                else
+                    app.VisitHistorySubTab.Title = '🗓 Visit History (Visits: 1)';
+                end
+            end
+            
+            if isprop(app, 'PatientHistorySummaryLabel') && isvalid(app.PatientHistorySummaryLabel)
+                if vCount > 1
+                    app.PatientHistorySummaryLabel.Text = sprintf('Patient: %s | Case ID: %s | Returning Patient: %d Recorded Visits', pName, cID, vCount);
+                    app.PatientHistorySummaryLabel.FontColor = [0.08, 0.45, 0.35];
+                else
+                    app.PatientHistorySummaryLabel.Text = sprintf('Patient: %s | Case ID: %s | Baseline Screening Encounter (Visit #1)', pName, cID);
+                    app.PatientHistorySummaryLabel.FontColor = [0.1, 0.35, 0.65];
+                end
+            end
+            
+            if iscell(app.VisitsHistory) && ~isempty(app.VisitsHistory)
+                nV = length(app.VisitsHistory);
+                tData = cell(nV, 6);
+                for v = 1:nV
+                    vRec = app.VisitsHistory{v};
+                    if isstruct(vRec)
+                        tData{v, 1} = sprintf('Visit #%d', v);
+                        if isfield(vRec, 'Date'), tData{v, 2} = vRec.Date; else, tData{v, 2} = '--'; end
+                        if isfield(vRec, 'GradeOD'), tData{v, 3} = vRec.GradeOD; else, tData{v, 3} = '--'; end
+                        if isfield(vRec, 'GradeOS'), tData{v, 4} = vRec.GradeOS; else, tData{v, 4} = '--'; end
+                        if isfield(vRec, 'ReviewerName'), tData{v, 5} = vRec.ReviewerName; else, tData{v, 5} = '--'; end
+                        if isfield(vRec, 'ClinicalDecision'), tData{v, 6} = vRec.ClinicalDecision; else, tData{v, 6} = '--'; end
+                    else
+                        tData{v, 1} = sprintf('Visit #%d', v);
+                        tData{v, 2} = '--'; tData{v, 3} = '--'; tData{v, 4} = '--'; tData{v, 5} = '--'; tData{v, 6} = '--';
+                    end
+                end
+                app.VisitsHistoryTable.Data = tData;
+            else
+                odG = 'Not Screened'; if isstruct(app.ClassificationOD) && isfield(app.ClassificationOD, 'predicted_label'), odG = app.ClassificationOD.predicted_label; end
+                osG = 'Not Screened'; if isstruct(app.ClassificationOS) && isfield(app.ClassificationOS, 'predicted_label'), osG = app.ClassificationOS.predicted_label; end
+                revName = app.ReviewerName; if isempty(revName), revName = 'Pending Review'; end
+                app.VisitsHistoryTable.Data = {'Visit #1 (Current)', datestr(now, 'dd-mmm-yyyy HH:MM:SS'), odG, osG, revName, app.ClinicalDecision};
+            end
+        end
+
+        function viewSelectedVisitReportCallback(app)
+            tbl = app.VisitsHistoryTable;
+            selRow = 1;
+            if ~isempty(tbl.Selection)
+                selRow = tbl.Selection(1);
+            end
+            
+            pName = app.CurrentPatientName; if isempty(pName), pName = 'Patient'; end
+            cID = app.CurrentCaseID; if isempty(cID), cID = 'RS-DRAFT'; end
+            
+            if isempty(app.VisitsHistory) || ~iscell(app.VisitsHistory) || selRow > length(app.VisitsHistory)
+                repTxt = generateReportText(app);
+                vTitle = sprintf('Report for Case %s (Current Visit #%d)', cID, app.CurrentVisitCount);
+            else
+                vData = app.VisitsHistory{selRow};
+                vDate = 'Recorded Visit'; if isfield(vData, 'Date'), vDate = vData.Date; end
+                vOD = '--'; if isfield(vData, 'GradeOD'), vOD = vData.GradeOD; end
+                vOS = '--'; if isfield(vData, 'GradeOS'), vOS = vData.GradeOS; end
+                vRev = '--'; if isfield(vData, 'ReviewerName'), vRev = vData.ReviewerName; end
+                vRole = '--'; if isfield(vData, 'ReviewerRole'), vRole = vData.ReviewerRole; end
+                vCadre = 'Clinical Sign-off'; if isfield(vData, 'ReviewCadre'), vCadre = vData.ReviewCadre; end
+                vDec = '--'; if isfield(vData, 'ClinicalDecision'), vDec = vData.ClinicalDecision; end
+                vRef = '--'; if isfield(vData, 'ReferralAction'), vRef = vData.ReferralAction; end
+                vHosp = '--'; if isfield(vData, 'HospitalFacility'), vHosp = vData.HospitalFacility; end
+                vNotes = 'No notes recorded.'; if isfield(vData, 'Notes'), vNotes = vData.Notes; end
+                
+                vTitle = sprintf('Clinical Screening Report — Case %s (Visit #%d)', cID, selRow);
+                repTxt = sprintf([...
+                    '=========================================================================\n', ...
+                    '     RETINASCAN AI — HISTORICAL VISIT REPORT ARCHIVE\n', ...
+                    '=========================================================================\n', ...
+                    'Case ID: %s               Encounter: Visit #%d\n', ...
+                    'Visit Date & Time: %s\n', ...
+                    'Patient Name: %s          Age / Gender: %d / %s\n', ...
+                    'Contact: %s               Insurance / ABHA ID: %s\n', ...
+                    '-------------------------------------------------------------------------\n', ...
+                    'RIGHT EYE (OD) FINDING: %s\n', ...
+                    'LEFT EYE (OS) FINDING:  %s\n', ...
+                    '-------------------------------------------------------------------------\n', ...
+                    'CLINICAL TELE-REVIEW & DIAGNOSTIC SIGN-OFF:\n', ...
+                    '  Review Cadre: %s\n', ...
+                    '  Reviewing Clinician: %s (%s)\n', ...
+                    '  Hospital Facility: %s\n', ...
+                    '  Clinical Decision: %s\n', ...
+                    '  Referral Action: %s\n', ...
+                    '  Clinical Notes: %s\n', ...
+                    '=========================================================================\n', ...
+                    'This is a certified historical encounter record stored in the local\n', ...
+                    'offline archive and synchronized with the Supabase tele-ophthalmology cloud.\n', ...
+                    '=========================================================================\n'], ...
+                    cID, selRow, vDate, ...
+                    pName, app.CurrentPatientAge, app.CurrentPatientGender, ...
+                    app.CurrentContact, app.CurrentInsuranceID, ...
+                    vOD, vOS, ...
+                    vCadre, vRev, vRole, vHosp, vDec, vRef, vNotes);
+            end
+            
+            dlg = uifigure('Name', vTitle, 'Position', [250, 160, 700, 520], 'WindowStyle', 'modal');
+            uilabel(dlg, 'Text', vTitle, 'Position', [20, 480, 520, 26], 'FontSize', 13, 'FontWeight', 'bold', 'FontColor', [0.1, 0.35, 0.65]);
+            uitextarea(dlg, 'Value', splitlines(repTxt), 'Position', [20, 60, 660, 410], 'FontName', 'Courier New', 'FontSize', 10, 'Editable', 'off');
+            uibutton(dlg, 'push', 'Text', '✔ Close Report Viewer', 'Position', [520, 16, 160, 32], ...
+                'BackgroundColor', [0.12, 0.35, 0.65], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~, ~) delete(dlg));
         end
 
         function runAIScreeningCallback(app)
