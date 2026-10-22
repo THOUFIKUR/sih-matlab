@@ -1,0 +1,19 @@
+=========================================================================
+RETINASCAN - CPU TRAINING STEP BENCHMARK & MILESTONE 3 PROJECTION
+Host: Windows 11 x64, Intel/AMD Host CPU (gpuDeviceCount = 0)
+Dataset Target: 3600 images (APTOS 2019 Blindness Detection scale)
+Batch Size: 8 images | Measurement: Forward pass + Loss + dlgradient
+-------------------------------------------------------------------------
+Model            | Resolution | Sec / Batch    | Min / Epoch (3600) | Hours / 20 Epochs 
+-------------------------------------------------------------------------
+efficientnetb0   | 224x224    |      5.337 s   |           40.0 min  |          13.34 h
+efficientnetb0   | 300x300    |      7.724 s   |           57.9 min  |          19.31 h
+resnet50         | 224x224    |      6.555 s   |           49.2 min  |          16.39 h
+resnet50         | 300x300    |      9.411 s   |           70.6 min  |          23.53 h
+=========================================================================
+ARCHITECTURAL TAKEAWAYS FOR MILESTONE 3:
+1. EfficientNet-B0 at 224x224 offers the highest training throughput on CPU.
+2. At 300x300, memory bandwidth and FLOPs increase by ~(300/224)^2 = 1.79x.
+3. Recommendation: Train transfer-learning head using EfficientNet-B0 at 224x224
+   with frozen backbone, enabling rapid convergence within practical CPU budgets.
+=========================================================================

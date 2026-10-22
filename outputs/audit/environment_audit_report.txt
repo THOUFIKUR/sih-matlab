@@ -1,0 +1,100 @@
+========================================================================
+              RETINASCAN MATLAB SIH 26038 ENVIRONMENT AUDIT           
+Timestamp: 2026-10-21 14:34:06
+========================================================================
+
+------------------------------------------------------------------------
+1. MATLAB & SYSTEM INFORMATION
+------------------------------------------------------------------------
+MATLAB Release: (R2024a) (24.1)
+MATLAB Date:    19-Nov-2023
+Computer/Arch:  win64
+Root Folder:    D:\matlab 25b\matlab 24a
+Current Folder: D:\RetinaScan_MATLAB_SIH26038\scripts
+
+------------------------------------------------------------------------
+2. INSTALLED PRODUCTS (from ver)
+------------------------------------------------------------------------
+ - Computer Vision Toolbox                       | Version: 24.1     | Release: (R2024a)
+ - Deep Learning Toolbox                         | Version: 24.1     | Release: (R2024a)
+ - Image Processing Toolbox                      | Version: 24.1     | Release: (R2024a)
+ - MATLAB                                        | Version: 24.1     | Release: (R2024a)
+ - Parallel Computing Toolbox                    | Version: 24.1     | Release: (R2024a)
+ - SimEvents                                     | Version: 24.1     | Release: (R2024a)
+ - Simscape                                      | Version: 24.1     | Release: (R2024a)
+ - Simscape Electrical                           | Version: 24.1     | Release: (R2024a)
+ - Simulink                                      | Version: 24.1     | Release: (R2024a)
+ - Statistics and Machine Learning Toolbox       | Version: 24.1     | Release: (R2024a)
+
+------------------------------------------------------------------------
+3. MANDATORY PRODUCTS STATUS (INSTALLED / MISSING)
+------------------------------------------------------------------------
+ [INSTALLED] Image Processing Toolbox
+ [INSTALLED] Computer Vision Toolbox
+ [INSTALLED] Deep Learning Toolbox
+ [INSTALLED] Statistics and Machine Learning Toolbox
+ [INSTALLED] Simulink
+ [INSTALLED] SimEvents
+ [INSTALLED] Parallel Computing Toolbox
+
+------------------------------------------------------------------------
+4. GPU AVAILABILITY
+------------------------------------------------------------------------
+GPU Device Count: 0
+No compatible GPU device found (GPU computing disabled/CPU only).
+
+------------------------------------------------------------------------
+5. INSTALLED ADD-ONS (from matlab.addons.installedAddons)
+------------------------------------------------------------------------
+ - Deep Learning Toolbox                         | Version: 24.1     | ID: NN
+ - Parallel Computing Toolbox                    | Version: 24.1     | ID: DM
+ - SimEvents                                     | Version: 24.1     | ID: SE
+ - Simulink                                      | Version: 24.1     | ID: SL
+ - Statistics and Machine Learning Toolbox       | Version: 24.1     | ID: ST
+ - Simscape                                      | Version: 24.1     | ID: SS
+ - Image Processing Toolbox                      | Version: 24.1     | ID: IP
+ - Simscape Electrical                           | Version: 24.1     | ID: PS
+ - Computer Vision Toolbox                       | Version: 24.1     | ID: VP
+ - Gerber to ODB PCB tracks converter for COMSOL (unmaintained) | Version: 1.0.0.1  | ID: e589ca2b-4a80-11e4-9553-005056977bd0
+
+------------------------------------------------------------------------
+6. CANDIDATE FUNCTIONS VERIFICATION (which -all)
+------------------------------------------------------------------------
+ [FOUND  ] imread -> D:\matlab 25b\matlab 24a\toolbox\matlab\imagesci\imread.m
+ [FOUND  ] imshow -> D:\matlab 25b\matlab 24a\toolbox\matlab\images\imshow.m
+ [FOUND  ] imadjust -> D:\matlab 25b\matlab 24a\toolbox\images\images\imadjust.m
+           shadowed: D:\matlab 25b\matlab 24a\toolbox\images\images\@gpuArray\imadjust.m
+ [FOUND  ] adapthisteq -> D:\matlab 25b\matlab 24a\toolbox\images\images\adapthisteq.m
+ [FOUND  ] imfilter -> D:\matlab 25b\matlab 24a\toolbox\images\images\imfilter.m
+           shadowed: D:\matlab 25b\matlab 24a\toolbox\images\images\@gpuArray\imfilter.m
+ [FOUND  ] entropy -> D:\matlab 25b\matlab 24a\toolbox\images\images\entropy.m
+ [FOUND  ] imbinarize -> D:\matlab 25b\matlab 24a\toolbox\images\images\imbinarize.m
+ [FOUND  ] imfindcircles -> D:\matlab 25b\matlab 24a\toolbox\images\images\imfindcircles.m
+ [FOUND  ] bwlabel -> D:\matlab 25b\matlab 24a\toolbox\images\images\bwlabel.m
+           shadowed: D:\matlab 25b\matlab 24a\toolbox\images\images\@gpuArray\bwlabel.m
+ [FOUND  ] regionprops -> D:\matlab 25b\matlab 24a\toolbox\images\images\regionprops.m
+           shadowed: D:\matlab 25b\matlab 24a\toolbox\images\images\@gpuArray\regionprops.m
+ [FOUND  ] trainnet -> D:\matlab 25b\matlab 24a\toolbox\nnet\deeptrain\trainnet.m
+ [FOUND  ] trainNetwork -> D:\matlab 25b\matlab 24a\toolbox\nnet\cnn\trainNetwork.m
+ [FOUND  ] gradCAM -> D:\matlab 25b\matlab 24a\toolbox\nnet\deepviz\core\gradCAM.m
+ [FOUND  ] imageLIME -> D:\matlab 25b\matlab 24a\toolbox\nnet\deepviz\lime\core\imageLIME.m
+ [FOUND  ] importNetworkFromONNX -> D:\matlab 25b\matlab 24a\toolbox\nnet\cnn\spkgs\importNetworkFromONNX.m
+ [FOUND  ] importONNXNetwork -> D:\matlab 25b\matlab 24a\toolbox\nnet\cnn\spkgs\importONNXNetwork.m
+ [FOUND  ] resnet50 -> D:\matlab 25b\matlab 24a\toolbox\nnet\cnn\spkgs\resnet50.m
+ [FOUND  ] efficientnetb0 -> D:\matlab 25b\matlab 24a\toolbox\nnet\cnn\spkgs\efficientnetb0.m
+ [MISSING] yolov8ObjectDetector
+
+------------------------------------------------------------------------
+7. LICENSE CHECK (Separated from Installation)
+------------------------------------------------------------------------
+ [CHECKOUT OK] License: Image_Toolbox            
+ [CHECKOUT OK] License: Video_and_Image_Blockset 
+ [CHECKOUT OK] License: Neural_Network_Toolbox   
+ [CHECKOUT OK] License: Statistics_Toolbox       
+ [CHECKOUT OK] License: SIMULINK                 
+ [CHECKOUT OK] License: SimEvents                
+ [CHECKOUT OK] License: Distrib_Computing_Toolbox
+
+========================================================================
+                         END OF AUDIT REPORT                            
+========================================================================

@@ -1,0 +1,14 @@
+=========================================================================
+RETINASCAN - RETINAL VESSEL SEGMENTATION EVALUATION REPORT
+Dataset: DRIVE Benchmark (Training Set, 1st Observer Manual Ground Truth)
+Evaluation Mask: Strictly inside official field-of-view (FOV) aperture
+Total Images Evaluated: 20
+-------------------------------------------------------------------------
+Metric                  Mean       Std Dev    Min        Max
+-------------------------------------------------------------------------
+Dice Similarity (F1):   0.6853     0.0647     0.4721     0.7421
+Sensitivity (Recall):   0.6497     0.0537     0.5258     0.7305
+Specificity:            0.9639     0.0338     0.8626     0.9865
+Accuracy:               0.9239     0.0271     0.8476     0.9447
+Area Under Curve (AUC): 0.9050     0.0196     0.8590     0.9362
+=========================================================================

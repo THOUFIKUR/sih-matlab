@@ -1,0 +1,48 @@
+# MATLAB artifacts & autosaves
+*.asv
+*.m~
+*.slxc
+slprj/
+*.autosave
+
+# Python & OS artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+Thumbs.db
+
+# Temporary screening runtime data
+data/temp/*
+!data/temp/.gitkeep
+
+# Bulky Training Datasets (Download separately per docs/GOOGLE_COLAB_TRAINING_GUIDE.md)
+data/messidor2/*.zip*
+data/aptos2019/train_images/
+data/aptos2019/test_images/*
+!data/aptos2019/test_images/0005cfc8afb6.png
+!data/aptos2019/test_images/003f0afdcd15.png
+!data/aptos2019/test_images/006efc72b638.png
+!data/aptos2019/test_images/00836aaacf06.png
+!data/aptos2019/test_images/009245722fa4.png
+!data/aptos2019/test_images/009c019a7309.png
+!data/aptos2019/test_images/010d915e229a.png
+!data/aptos2019/test_images/0111b949947e.png
+!data/aptos2019/test_images/01499815e469.png
+!data/aptos2019/test_images/0167076e7089.png
+
+# Generated Screening Reports & Transient Test Outputs
+outputs/reports/*.pdf
+outputs/reports/*.txt
+outputs/reports/audio/*.mp3
+outputs/reports/temp_qr/
+outputs/audio/
+outputs/test/
+outputs/test_*.jpg
+outputs/test_*.pdf
+outputs/figures/*.png
+!outputs/reports/.gitkeep
+!outputs/figures/.gitkeep
+
+# External Binary Installer Cache
+tools/mpm.exe

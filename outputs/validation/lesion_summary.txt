@@ -1,0 +1,13 @@
+=========================================================================
+RETINASCAN - LESION CANDIDATES EVALUATION REPORT
+Dataset: IDRiD Segmentation Challenge (Official Testing Set)
+Evaluation Type: Pixel-Level Segmentation & Candidate Findings Detection
+Total Images Evaluated: 27
+Note: Labeled strictly as CANDIDATE FINDINGS, not confirmed clinical diagnoses.
+-------------------------------------------------------------------------
+Lesion Target       Pixel Dice (Mean)   Pixel Recall/Sens   Pixel Precision
+-------------------------------------------------------------------------
+Microaneurysms:     0.0007              0.0073              0.0004
+Haemorrhages:       0.0040              0.0026              0.0502
+Hard Exudates:      0.2787              0.2395              0.4002
+=========================================================================

@@ -1,0 +1,20 @@
+=========================================================================
+RETINASCAN - OPTIC DISC & FOVEA LOCALIZATION EVALUATION REPORT
+Dataset: IDRiD Localization Challenge (Official Testing Set)
+Total Images Evaluated: 103
+-------------------------------------------------------------------------
+OPTIC DISC LOCALIZATION:
+  Mean Pixel Error:             145.69 px
+  Median Pixel Error:           109.00 px
+  Mean Error (in Disc Diameters): 0.4092 ODD
+  Median Error (in Disc Diameters): 0.3062 ODD
+  Success Rate (<= 1.0 ODD):    97.09 %
+-------------------------------------------------------------------------
+FOVEA CENTRALIS LOCALIZATION:
+  Fovea Coordinates Evaluated:  103
+  Mean Pixel Error:             193.45 px
+  Median Pixel Error:           112.11 px
+  Mean Error (in Disc Diameters): 0.5434 ODD
+  Median Error (in Disc Diameters): 0.3149 ODD
+  Success Rate (<= 1.0 ODD):    81.55 %
+=========================================================================
