@@ -147,6 +147,9 @@ classdef RetinaScanApp < handle
         LesionCountTable       matlab.ui.control.Table
         
         % UI Components - Page 5: Clinician Review & Report
+        ReviewerPresetDropDown matlab.ui.control.DropDown
+        ReviewLevelDropDown    matlab.ui.control.DropDown
+        LockedDoctorBadge      matlab.ui.control.Label
         ReviewerNameEdit       matlab.ui.control.EditField
         ReviewerRoleDropDown   matlab.ui.control.DropDown
         DecisionDropDown       matlab.ui.control.DropDown
@@ -158,6 +161,7 @@ classdef RetinaScanApp < handle
         ReviewStatusLabel      matlab.ui.control.Label
         ReportPreviewLabel     matlab.ui.control.Label
         AudioStatusLabel       matlab.ui.control.Label
+        VisitsHistory          = {}
         
         % UI Components - Page 6: Clinic Workflow Simulation
         ScenarioDropDown     matlab.ui.control.DropDown
@@ -414,7 +418,8 @@ classdef RetinaScanApp < handle
             app.PatientNameEdit = uieditfield(formPanel, 'text', 'Value', '', ...
                 'Placeholder', 'Alphabetic name only (letters & spaces)', ...
                 'Position', [140, h - 160, 320, 26], ...
-                'ValueChangedFcn', @(src, ~) onPatientNameEditChanged(app, src));
+                'ValueChangedFcn', @(src, ~) onPatientNameEditChanged(app, src), ...
+                'ValueChangingFcn', @(src, event) onPatientNameValueChanging(app, src, event));
                 
             uilabel(formPanel, 'Text', 'Age (Years) *:', 'Position', [20, h - 200, 110, 22]);
             app.AgeEdit = uieditfield(formPanel, 'numeric', 'Value', 0, ...
@@ -430,13 +435,15 @@ classdef RetinaScanApp < handle
             app.ContactEdit = uieditfield(formPanel, 'text', 'Value', '', ...
                 'Placeholder', '10-digit mobile number', ...
                 'Position', [175, h - 240, 285, 26], ...
-                'ValueChangedFcn', @(src, ~) onContactPhoneEditChanged(app, src));
+                'ValueChangedFcn', @(src, ~) onContactPhoneEditChanged(app, src), ...
+                'ValueChangingFcn', @(src, event) onContactPhoneValueChanging(app, src, event));
 
             uilabel(formPanel, 'Text', 'Insurance / Health ID:', 'Position', [20, h - 280, 130, 22]);
             app.InsuranceEdit = uieditfield(formPanel, 'text', 'Value', '', ...
-                'Placeholder', 'Optional member / payer ID (e.g. ABHA-1234)', ...
+                'Placeholder', 'e.g. ABCD-1234 or ABHA-123', ...
                 'Position', [155, h - 280, 305, 26], ...
-                'ValueChangedFcn', @(src, ~) onInsuranceEditChanged(app, src));
+                'ValueChangedFcn', @(src, ~) onInsuranceEditChanged(app, src), ...
+                'ValueChangingFcn', @(src, event) onInsuranceValueChanging(app, src, event));
 
             uilabel(formPanel, 'Text', 'Diabetes Duration:', 'Position', [20, h - 320, 110, 22]);
             app.DiabetesDurationEdit = uieditfield(formPanel, 'numeric', 'Value', 0, ...
@@ -778,40 +785,72 @@ classdef RetinaScanApp < handle
             reviewPanel = uipanel(p, 'Title', 'Clinician Review & Diagnostic Sign-Off', ...
                 'Position', [15, 55, formW, h - 70], 'FontWeight', 'bold', 'FontSize', 12);
 
-            uilabel(reviewPanel, 'Text', 'Reviewer Name *:', 'Position', [20, h - 120, 120, 22]);
+            uilabel(reviewPanel, 'Text', 'Select Clinician:', 'Position', [20, h - 105, 120, 22]);
+            app.ReviewerPresetDropDown = uidropdown(reviewPanel, ...
+                'Items', {'[Select Registered Clinician / Doctor]', ...
+                          'Dr. Thoufikur Rahaman, MD (Consultant Ophthalmologist)', ...
+                          'Dr. S. Rangarajan, MS (Consultant Ophthalmologist)', ...
+                          'Dr. A. Meenakshi, DO (Tele-Ophthalmologist)', ...
+                          'Dr. V. Rajesh, MBBS (Medical Officer, Rural PHC)', ...
+                          'Optom. Priya S. (Senior Optometrist)', ...
+                          'Staff Nurse Kavitha M. (Screening Nurse)', ...
+                          'Other / Custom Entry'}, ...
+                'Value', '[Select Registered Clinician / Doctor]', ...
+                'Position', [150, h - 105, 330, 26], ...
+                'ValueChangedFcn', @(~, ~) onReviewerPresetChanged(app));
+
+            uilabel(reviewPanel, 'Text', 'Reviewer Name *:', 'Position', [20, h - 140, 120, 22]);
             app.ReviewerNameEdit = uieditfield(reviewPanel, 'text', 'Value', '', ...
                 'Placeholder', 'Enter reviewing clinician name', ...
-                'Position', [150, h - 120, 330, 26]);
+                'Position', [150, h - 140, 205, 26], ...
+                'ValueChangedFcn', @(~, ~) updateReportPreview(app));
 
-            uilabel(reviewPanel, 'Text', 'Reviewer Role:', 'Position', [20, h - 160, 120, 22]);
+            app.LockedDoctorBadge = uilabel(reviewPanel, ...
+                'Text', 'Camp Portal', ...
+                'Position', [362, h - 140, 118, 26], ...
+                'FontSize', 9, 'FontColor', [0.4, 0.4, 0.4]);
+
+            uilabel(reviewPanel, 'Text', 'Review Cadre *:', 'Position', [20, h - 175, 120, 22], 'FontWeight', 'bold');
+            app.ReviewLevelDropDown = uidropdown(reviewPanel, ...
+                'Items', {'Specialist Doctor Sign-Off (Consultant Ophthalmologist)', ...
+                          'Primary Camp Review (Medical Officer / Screening Staff — Awaiting Doctor Tele-Signoff)'}, ...
+                'Value', 'Specialist Doctor Sign-Off (Consultant Ophthalmologist)', ...
+                'Position', [150, h - 175, 330, 26], ...
+                'ValueChangedFcn', @(~, ~) onReviewLevelChanged(app));
+
+            uilabel(reviewPanel, 'Text', 'Clinician Role:', 'Position', [20, h - 210, 120, 22]);
             app.ReviewerRoleDropDown = uidropdown(reviewPanel, ...
-                'Items', {'Consultant Ophthalmologist', 'Senior Optometrist', 'Tele-Ophthalmologist', 'Medical Officer'}, ...
-                'Value', 'Consultant Ophthalmologist', 'Position', [150, h - 160, 330, 26]);
+                'Items', {'Consultant Ophthalmologist', 'Senior Optometrist', 'Tele-Ophthalmologist', 'Medical Officer', 'Community Screening Nurse'}, ...
+                'Value', 'Consultant Ophthalmologist', 'Position', [150, h - 210, 330, 26], ...
+                'ValueChangedFcn', @(~, ~) updateReportPreview(app));
 
-            uilabel(reviewPanel, 'Text', 'Clinical Diagnosis:', 'Position', [20, h - 200, 120, 22]);
+            uilabel(reviewPanel, 'Text', 'Clinical Diagnosis:', 'Position', [20, h - 245, 120, 22]);
             app.DecisionDropDown = uidropdown(reviewPanel, ...
                 'Items', {'Not yet reviewed', 'Confirm AI Grade', 'Modify: Grade 0 (No DR)', 'Modify: Grade 1 (Mild NPDR)', 'Modify: Grade 2 (Moderate NPDR)', 'Modify: Grade 3 (Severe NPDR)', 'Modify: Grade 4 (Proliferative DR)', 'Reject: Image Inadequate / Request Recapture'}, ...
-                'Value', 'Not yet reviewed', 'Position', [150, h - 200, 330, 26]);
+                'Value', 'Not yet reviewed', 'Position', [150, h - 245, 330, 26], ...
+                'ValueChangedFcn', @(~, ~) updateReportPreview(app));
 
-            uilabel(reviewPanel, 'Text', 'Referral Action:', 'Position', [20, h - 235, 120, 22]);
+            uilabel(reviewPanel, 'Text', 'Referral Action:', 'Position', [20, h - 280, 120, 22]);
             app.ReferralDropDown = uidropdown(reviewPanel, ...
                 'Items', {'Routine Annual (12 Months)', 'Primary Review (6 Months)', 'District Referral (3-4 Weeks)', 'URGENT: Tertiary Laser / Anti-VEGF (< 1 Week)'}, ...
-                'Value', 'Routine Annual (12 Months)', 'Position', [150, h - 235, 330, 26]);
+                'Value', 'Routine Annual (12 Months)', 'Position', [150, h - 280, 330, 26], ...
+                'ValueChangedFcn', @(~, ~) updateReportPreview(app));
 
-            uilabel(reviewPanel, 'Text', 'Hospital Facility *:', 'Position', [20, h - 275, 120, 22]);
+            uilabel(reviewPanel, 'Text', 'Hospital Facility *:', 'Position', [20, h - 315, 120, 22]);
             app.HospitalFacilityEdit = uieditfield(reviewPanel, 'text', ...
                 'Value', 'District Eye Hospital, Tertiary Care Center', ...
-                'Position', [150, h - 275, 330, 26]);
+                'Position', [150, h - 315, 330, 26]);
 
-            uilabel(reviewPanel, 'Text', 'Referral Timeframe:', 'Position', [20, h - 315, 125, 22]);
+            uilabel(reviewPanel, 'Text', 'Referral Timeframe:', 'Position', [20, h - 350, 125, 22]);
             app.ReferralTimeframeDropDown = uidropdown(reviewPanel, ...
                 'Items', {'Immediate: Within 24-48 Hours (High Risk)', 'Priority Referral: Within 2 to 4 Weeks', 'Routine Follow-up: 6 to 12 Months'}, ...
-                'Value', 'Priority Referral: Within 2 to 4 Weeks', 'Position', [150, h - 315, 330, 26]);
+                'Value', 'Priority Referral: Within 2 to 4 Weeks', 'Position', [150, h - 350, 330, 26]);
 
-            uilabel(reviewPanel, 'Text', 'Clinical Notes & Recommendations:', 'Position', [20, h - 350, 250, 22]);
+            uilabel(reviewPanel, 'Text', 'Clinical Notes & Recommendations:', 'Position', [20, h - 380, 250, 20]);
             app.NotesTextArea = uitextarea(reviewPanel, ...
                 'Value', {'Review completed. Patient informed.'}, ...
-                'Position', [20, h - 440, 460, 85]);
+                'Position', [20, 122, 460, max(50, h - 505)], ...
+                'ValueChangedFcn', @(~, ~) updateReportPreview(app));
 
             uilabel(reviewPanel, 'Text', 'Report Language:', 'Position', [20, 88, 120, 22], 'FontWeight', 'bold');
             app.ReportLangDropDown = uidropdown(reviewPanel, ...
@@ -1084,6 +1123,9 @@ classdef RetinaScanApp < handle
             app.CaseCreatedAt = datestr(now, 'yyyy-mm-dd HH:MM:SS');
             app.CaseUpdatedAt = app.CaseCreatedAt;
             
+            app.CurrentVisitCount = 1;
+            app.VisitsHistory = {};
+            
             % 3. Clear Images & Analysis Results
             app.ImagePathOD = ''; app.ImagePathOS = '';
             app.RawImageOD = [];  app.RawImageOS = [];
@@ -1141,12 +1183,7 @@ classdef RetinaScanApp < handle
                 app.EyeOSStatusLabel.FontColor = [0.4, 0.4, 0.4];
             end
             
-            if ~isempty(app.ReviewerNameEdit) && isvalid(app.ReviewerNameEdit)
-                app.ReviewerNameEdit.Value = '';
-            end
-            if ~isempty(app.ReviewerRoleDropDown) && isvalid(app.ReviewerRoleDropDown)
-                app.ReviewerRoleDropDown.Value = 'Consultant Ophthalmologist';
-            end
+            applyDoctorLoginStateToReview(app);
             if ~isempty(app.DecisionDropDown) && isvalid(app.DecisionDropDown)
                 app.DecisionDropDown.Value = 'Not yet reviewed';
             end
@@ -1166,9 +1203,22 @@ classdef RetinaScanApp < handle
             end
         end
 
-        % Patient Field Validators
+        % Patient Field Real-Time Validators & Formatters
+        function onPatientNameValueChanging(~, src, event)
+            clean = regexprep(event.Value, '[^a-zA-Z\s\.]', '');
+            src.Value = clean;
+        end
+
         function onPatientNameEditChanged(~, src)
             clean = regexprep(src.Value, '[^a-zA-Z\s\.]', '');
+            src.Value = clean;
+        end
+
+        function onContactPhoneValueChanging(~, src, event)
+            clean = regexprep(event.Value, '\D', '');
+            if length(clean) > 10
+                clean = clean(1:10);
+            end
             src.Value = clean;
         end
 
@@ -1183,8 +1233,119 @@ classdef RetinaScanApp < handle
             src.Value = clean;
         end
 
+        function onInsuranceValueChanging(~, src, event)
+            raw = upper(regexprep(event.Value, '[^A-Za-z0-9]', ''));
+            if length(raw) > 10
+                raw = raw(1:10);
+            end
+            if length(raw) <= 4
+                src.Value = raw;
+            else
+                src.Value = [raw(1:4), '-', raw(5:end)];
+            end
+        end
+
         function onInsuranceEditChanged(~, src)
-            src.Value = upper(regexprep(strtrim(src.Value), '[^a-zA-Z0-9\-]', ''));
+            raw = upper(regexprep(strtrim(src.Value), '[^A-Za-z0-9]', ''));
+            if length(raw) > 10
+                raw = raw(1:10);
+            end
+            if length(raw) <= 4
+                src.Value = raw;
+            else
+                src.Value = [raw(1:4), '-', raw(5:end)];
+            end
+        end
+
+        function onReviewerPresetChanged(app)
+            val = app.ReviewerPresetDropDown.Value;
+            if startsWith(val, '[Select')
+                return;
+            end
+            if contains(val, 'Dr. Thoufikur Rahaman')
+                app.ReviewerNameEdit.Value = 'Dr. Thoufikur Rahaman, MD';
+                app.ReviewerRoleDropDown.Value = 'Consultant Ophthalmologist';
+                app.ReviewLevelDropDown.Value = 'Specialist Doctor Sign-Off (Consultant Ophthalmologist)';
+                app.HospitalFacilityEdit.Value = 'Regional Eye Institute & Tele-Ophthalmology Centre';
+            elseif contains(val, 'Dr. S. Rangarajan')
+                app.ReviewerNameEdit.Value = 'Dr. S. Rangarajan, MS';
+                app.ReviewerRoleDropDown.Value = 'Consultant Ophthalmologist';
+                app.ReviewLevelDropDown.Value = 'Specialist Doctor Sign-Off (Consultant Ophthalmologist)';
+                app.HospitalFacilityEdit.Value = 'Government Ophthalmic Hospital';
+            elseif contains(val, 'Dr. A. Meenakshi')
+                app.ReviewerNameEdit.Value = 'Dr. A. Meenakshi, DO';
+                app.ReviewerRoleDropDown.Value = 'Tele-Ophthalmologist';
+                app.ReviewLevelDropDown.Value = 'Specialist Doctor Sign-Off (Consultant Ophthalmologist)';
+                app.HospitalFacilityEdit.Value = 'Apex Tele-Retina Command Centre';
+            elseif contains(val, 'Dr. V. Rajesh')
+                app.ReviewerNameEdit.Value = 'Dr. V. Rajesh, MBBS';
+                app.ReviewerRoleDropDown.Value = 'Medical Officer';
+                app.ReviewLevelDropDown.Value = 'Primary Camp Review (Medical Officer / Screening Staff — Awaiting Doctor Tele-Signoff)';
+                app.HospitalFacilityEdit.Value = 'Primary Health Centre (PHC), Rural Health Unit';
+            elseif contains(val, 'Optom. Priya S.')
+                app.ReviewerNameEdit.Value = 'Optom. Priya S.';
+                app.ReviewerRoleDropDown.Value = 'Senior Optometrist';
+                app.ReviewLevelDropDown.Value = 'Primary Camp Review (Medical Officer / Screening Staff — Awaiting Doctor Tele-Signoff)';
+                app.HospitalFacilityEdit.Value = 'Mobile Retinal Screening Van';
+            elseif contains(val, 'Staff Nurse Kavitha M.')
+                app.ReviewerNameEdit.Value = 'Staff Nurse Kavitha M.';
+                app.ReviewerRoleDropDown.Value = 'Community Screening Nurse';
+                app.ReviewLevelDropDown.Value = 'Primary Camp Review (Medical Officer / Screening Staff — Awaiting Doctor Tele-Signoff)';
+                app.HospitalFacilityEdit.Value = 'Primary Health Centre (PHC), Rural Health Unit';
+            end
+            updateReportPreview(app);
+        end
+
+        function onReviewLevelChanged(app)
+            if contains(lower(app.ReviewLevelDropDown.Value), 'medical officer')
+                if ~isfield(app.AuthenticatedDoctor, 'full_name') || isempty(app.AuthenticatedDoctor.full_name)
+                    app.ReviewerRoleDropDown.Value = 'Medical Officer';
+                    if isempty(strtrim(app.ReviewerNameEdit.Value))
+                        app.ReviewerNameEdit.Value = 'Dr. V. Rajesh, MBBS (Medical Officer)';
+                    end
+                end
+            else
+                if ~isfield(app.AuthenticatedDoctor, 'full_name') || isempty(app.AuthenticatedDoctor.full_name)
+                    app.ReviewerRoleDropDown.Value = 'Consultant Ophthalmologist';
+                end
+            end
+            updateReportPreview(app);
+        end
+
+        function applyDoctorLoginStateToReview(app)
+            if isfield(app.AuthenticatedDoctor, 'full_name') && ~isempty(app.AuthenticatedDoctor.full_name)
+                docName = app.AuthenticatedDoctor.full_name;
+                docRole = 'Consultant Ophthalmologist';
+                if isfield(app.AuthenticatedDoctor, 'specialty') && ~isempty(app.AuthenticatedDoctor.specialty)
+                    docRole = app.AuthenticatedDoctor.specialty;
+                end
+                docHosp = 'Regional Eye Institute';
+                if isfield(app.AuthenticatedDoctor, 'hospital') && ~isempty(app.AuthenticatedDoctor.hospital)
+                    docHosp = app.AuthenticatedDoctor.hospital;
+                end
+                
+                app.ReviewerNameEdit.Value = docName;
+                app.ReviewerNameEdit.Enable = 'off';
+                app.ReviewerRoleDropDown.Value = docRole;
+                app.ReviewerRoleDropDown.Enable = 'off';
+                app.HospitalFacilityEdit.Value = docHosp;
+                app.HospitalFacilityEdit.Enable = 'off';
+                app.ReviewLevelDropDown.Value = 'Specialist Doctor Sign-Off (Consultant Ophthalmologist)';
+                app.ReviewLevelDropDown.Enable = 'off';
+                if isprop(app, 'LockedDoctorBadge') && isvalid(app.LockedDoctorBadge)
+                    app.LockedDoctorBadge.Text = '🔒 Account Locked';
+                    app.LockedDoctorBadge.FontColor = [0.08, 0.45, 0.35];
+                end
+            else
+                app.ReviewerNameEdit.Enable = 'on';
+                app.ReviewerRoleDropDown.Enable = 'on';
+                app.HospitalFacilityEdit.Enable = 'on';
+                app.ReviewLevelDropDown.Enable = 'on';
+                if isprop(app, 'LockedDoctorBadge') && isvalid(app.LockedDoctorBadge)
+                    app.LockedDoctorBadge.Text = 'Camp Portal';
+                    app.LockedDoctorBadge.FontColor = [0.4, 0.4, 0.4];
+                end
+            end
         end
 
         % Patient Save & Deduplication
@@ -1259,6 +1420,7 @@ classdef RetinaScanApp < handle
             end
 
             isReturning = ~isempty(existingCaseID);
+            existingHistory = {};
             if isReturning
                 targetCaseID = existingCaseID;
                 matF = fullfile(app.CasesDir, sprintf('%s.mat', targetCaseID));
@@ -1270,13 +1432,18 @@ classdef RetinaScanApp < handle
                         else
                             existingVisits = 2;
                         end
+                        if isfield(sCase.caseData, 'VisitsHistory') && iscell(sCase.caseData.VisitsHistory)
+                            existingHistory = sCase.caseData.VisitsHistory;
+                        end
                     catch
                         existingVisits = 2;
                     end
                 end
+                app.VisitsHistory = existingHistory;
             else
                 targetCaseID = app.CurrentCaseID;
                 existingVisits = 1;
+                app.VisitsHistory = {};
             end
             
             app.CurrentCaseID        = targetCaseID;
@@ -1378,8 +1545,45 @@ classdef RetinaScanApp < handle
             caseData.ClinicalNotes = app.ClinicalNotes;
             caseData.ReviewSaved = app.ReviewSaved;
             caseData.ReportExportPath = app.ReportExportPath;
+
+            % Record current visit non-destructively
+            thisVisit = struct();
+            thisVisit.VisitNumber = app.CurrentVisitCount;
+            thisVisit.Date = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+            thisVisit.QualityOD = app.QualityStatusOD;
+            thisVisit.QualityOS = app.QualityStatusOS;
+            thisVisit.GradeOD = 'Not Screened';
+            if isstruct(app.ClassificationOD) && isfield(app.ClassificationOD, 'predicted_label')
+                thisVisit.GradeOD = app.ClassificationOD.predicted_label;
+            end
+            thisVisit.GradeOS = 'Not Screened';
+            if isstruct(app.ClassificationOS) && isfield(app.ClassificationOS, 'predicted_label')
+                thisVisit.GradeOS = app.ClassificationOS.predicted_label;
+            end
+            thisVisit.ReviewerName = app.ReviewerName;
+            thisVisit.ReviewerRole = app.ReviewerRole;
+            thisVisit.ReviewCadre = 'Specialist Doctor';
+            if isprop(app, 'ReviewLevelDropDown') && isvalid(app.ReviewLevelDropDown)
+                thisVisit.ReviewCadre = app.ReviewLevelDropDown.Value;
+            end
+            thisVisit.ClinicalDecision = app.ClinicalDecision;
+            thisVisit.ReferralAction = app.ReferralAction;
+            thisVisit.HospitalFacility = app.HospitalFacility;
+            thisVisit.Notes = strjoin(app.ClinicalNotes, ' ');
+
+            vHist = app.VisitsHistory;
+            if isempty(vHist) || ~iscell(vHist)
+                vHist = {};
+            end
+            vHist{app.CurrentVisitCount} = thisVisit;
+            app.VisitsHistory = vHist;
+            caseData.VisitsHistory = vHist;
             
-            % Save to individual case file
+            % Save individual visit record to disk (RS-2026-001_Visit1.mat, RS-2026-001_Visit2.mat)
+            visitMatFile = fullfile(app.CasesDir, sprintf('%s_Visit%d.mat', app.CurrentCaseID, app.CurrentVisitCount));
+            try save(visitMatFile, 'thisVisit'); catch, end
+
+            % Save to master case file
             caseFile = fullfile(app.CasesDir, sprintf('%s.mat', app.CurrentCaseID));
             save(caseFile, 'caseData');
             
@@ -1522,12 +1726,19 @@ classdef RetinaScanApp < handle
             app.NotesTextArea.Value = cd.ClinicalNotes;
             app.ReviewSaved = cd.ReviewSaved;
             
+            if isfield(cd, 'VisitsHistory') && iscell(cd.VisitsHistory)
+                app.VisitsHistory = cd.VisitsHistory;
+            else
+                app.VisitsHistory = {};
+            end
+            
             % Update Views
             updateQualityViewForActiveEye(app);
             updateScreeningViewForActiveEye(app);
+            applyDoctorLoginStateToReview(app);
             updateReportPreview(app);
             
-            safeAlert(app, sprintf('Loaded Case %s for patient %s.', cd.CaseID, cd.PatientName), 'Case Loaded');
+            safeAlert(app, sprintf('Loaded Case %s for patient %s (Visit #%d).', cd.CaseID, cd.PatientName, app.CurrentVisitCount), 'Case Loaded');
         end
 
         function loadSelectedCaseFromOverview(app)
@@ -2262,6 +2473,12 @@ classdef RetinaScanApp < handle
         function repText = generateReportText(app)
             rName = app.ReviewerNameEdit.Value;
             if isempty(rName), rName = '[Pending Clinician Name]'; end
+            rRole = app.ReviewerRoleDropDown.Value;
+            
+            rCadre = 'Specialist Doctor Sign-Off';
+            if isprop(app, 'ReviewLevelDropDown') && isvalid(app.ReviewLevelDropDown)
+                rCadre = app.ReviewLevelDropDown.Value;
+            end
             
             % Determine OD and OS grade strings
             odGrade = 'Not Evaluated';
@@ -2285,18 +2502,44 @@ classdef RetinaScanApp < handle
             insStr = app.CurrentInsuranceID;
             if isempty(insStr), insStr = '--'; end
 
-            visitHistoryLine = sprintf('Clinical History: Visit #%d (Screening Encounter)\n', app.CurrentVisitCount);
-            if app.CurrentVisitCount > 1
-                visitHistoryLine = sprintf('Clinical History: Visit #%d (Returning Patient — Prior Encounters Linked)\n', app.CurrentVisitCount);
+            % Longitudinal Multi-Visit History (Never Overwriting Past Records)
+            if iscell(app.VisitsHistory) && length(app.VisitsHistory) > 1
+                historyLines = sprintf(['-------------------------------------------------------------------------\n', ...
+                                        'PATIENT LONGITUDINAL SCREENING HISTORY (Total Visits on Record: %d):\n'], length(app.VisitsHistory));
+                for v = 1:length(app.VisitsHistory)
+                    vRec = app.VisitsHistory{v};
+                    if isstruct(vRec)
+                        vDate = 'Past Visit'; if isfield(vRec, 'Date'), vDate = vRec.Date; end
+                        vOD = '--'; if isfield(vRec, 'GradeOD'), vOD = vRec.GradeOD; end
+                        vOS = '--'; if isfield(vRec, 'GradeOS'), vOS = vRec.GradeOS; end
+                        vDoc = '--'; if isfield(vRec, 'ReviewerName'), vDoc = vRec.ReviewerName; end
+                        vDec = '--'; if isfield(vRec, 'ClinicalDecision'), vDec = vRec.ClinicalDecision; end
+                        if v == app.CurrentVisitCount
+                            tag = 'CURRENT ENCOUNTER';
+                        else
+                            tag = 'HISTORICAL ENCOUNTER';
+                        end
+                        historyLines = [historyLines, sprintf('  • Visit #%d [%s] Date: %s\n    OD: %s | OS: %s\n    Reviewer: %s | Decision: %s\n', ...
+                            v, tag, vDate, vOD, vOS, vDoc, vDec)]; %#ok<AGROW>
+                    end
+                end
+                visitHistorySection = historyLines;
+            else
+                visitHistorySection = sprintf('Clinical History: Visit #%d (Baseline Initial Screening Encounter)\n', app.CurrentVisitCount);
+            end
+
+            cadreNotice = 'SPECIALIST TELE-OPHTHALMOLOGY SIGN-OFF (Doctor Certified)';
+            if contains(lower(rCadre), 'medical officer')
+                cadreNotice = 'PRIMARY CAMP REVIEW (Reviewed by Medical Officer — Pending Final Doctor Tele-Signoff)';
             end
 
             repText = sprintf([...
                 '=========================================================================\n', ...
-                '         RETINASCAN AI — SCREENING SUMMARY (PROTOTYPE REPORT)\n', ...
+                '         RETINASCAN AI — CLINICAL SCREENING SUMMARY REPORT\n', ...
                 '=========================================================================\n', ...
                 'Case ID: %s               Date: %s\n', ...
                 'Patient Name: %s          Age / Gender: %d / %s\n', ...
-                'Contact: %s               Insurance ID: %s\n', ...
+                'Contact: %s               Insurance / ABHA ID: %s\n', ...
                 '%s', ...
                 '-------------------------------------------------------------------------\n', ...
                 'RIGHT EYE (OD):\n', ...
@@ -2306,8 +2549,9 @@ classdef RetinaScanApp < handle
                 '  Quality: %s  |  AI Grade: %s\n', ...
                 '  Candidate Lesions (YOLO11): %d detections\n', ...
                 '-------------------------------------------------------------------------\n', ...
-                'CLINICIAN TELE-REVIEW:\n', ...
-                '  Reviewer: %s (%s)\n', ...
+                'CLINICAL REVIEW LEVEL: %s\n', ...
+                '  Reviewing Clinician: %s (%s)\n', ...
+                '  Hospital Facility: %s\n', ...
                 '  Clinical Decision: %s\n', ...
                 '  Referral Action: %s\n', ...
                 '  Clinical Notes: %s\n', ...
@@ -2319,16 +2563,16 @@ classdef RetinaScanApp < handle
                 '=========================================================================\n'], ...
                 app.CurrentCaseID, datestr(now, 'yyyy-mm-dd HH:MM'), ...
                 app.CurrentPatientName, app.CurrentPatientAge, app.CurrentPatientGender, ...
-                contactStr, insStr, visitHistoryLine, ...
+                contactStr, insStr, visitHistorySection, ...
                 app.QualityStatusOD, odGrade, odDets, ...
                 app.QualityStatusOS, osGrade, osDets, ...
-                rName, app.ReviewerRoleDropDown.Value, ...
+                cadreNotice, rName, rRole, app.HospitalFacilityEdit.Value, ...
                 app.DecisionDropDown.Value, app.ReferralDropDown.Value, ...
                 strjoin(app.NotesTextArea.Value, ' '));
         end
 
         function exportTxtReportCallback(app)
-            reportFile = fullfile(app.ReportsDir, sprintf('Report_%s_%s.txt', app.CurrentCaseID, datestr(now, 'yyyymmdd_HHMMSS')));
+            reportFile = fullfile(app.ReportsDir, sprintf('Report_%s_Visit%d_%s.txt', app.CurrentCaseID, app.CurrentVisitCount, datestr(now, 'yyyymmdd_HHMMSS')));
             fid = fopen(reportFile, 'w');
             fprintf(fid, '%s', generateReportText(app));
             fclose(fid);
@@ -2462,6 +2706,9 @@ classdef RetinaScanApp < handle
                     docId = app.AuthenticatedDoctor.id;
                 end
 
+                isMedOfficer = isprop(app, 'ReviewLevelDropDown') && isvalid(app.ReviewLevelDropDown) && ...
+                               contains(lower(app.ReviewLevelDropDown.Value), 'medical officer');
+
                 decision = 'confirm';
                 if contains(lower(app.ClinicalDecision), 'override')
                     decision = 'override';
@@ -2489,9 +2736,15 @@ classdef RetinaScanApp < handle
                 finishedPatient = app.CurrentPatientName;
 
                 if ok
-                    app.ReviewStatusLabel.Text = sprintf('Cloud Status: VERIFIED by %s on %s', docName, datestr(now, 'yyyy-mm-dd HH:MM'));
-                    app.ReviewStatusLabel.FontColor = [0.08, 0.45, 0.35];
-                    cloudMsg = 'Clinician sign-off successfully submitted to Supabase Cloud Tele-Review.';
+                    if isMedOfficer
+                        app.ReviewStatusLabel.Text = sprintf('Camp Status: TRIAGED by %s on %s (Awaiting Doctor Sign-off)', docName, datestr(now, 'yyyy-mm-dd HH:MM'));
+                        app.ReviewStatusLabel.FontColor = [0.1, 0.4, 0.6];
+                        cloudMsg = sprintf('Triaged by Medical Officer %s at camp. Case retained in cloud queue for specialist ophthalmology verification.', docName);
+                    else
+                        app.ReviewStatusLabel.Text = sprintf('Doctor Sign-Off: VERIFIED by %s on %s', docName, datestr(now, 'yyyy-mm-dd HH:MM'));
+                        app.ReviewStatusLabel.FontColor = [0.08, 0.45, 0.35];
+                        cloudMsg = sprintf('Doctor tele-signoff certified by %s and committed to cloud registry.', docName);
+                    end
                 else
                     cloudMsg = sprintf('Cloud notice: %s (Preserved in offline queue).', res.message);
                 end
@@ -2803,14 +3056,8 @@ classdef RetinaScanApp < handle
                 emailFld.Value = '';
                 passFld.Value = '';
                 
-                % Update reviewer pre-fills
-                if isfield(prof, 'full_name') && ~isempty(prof.full_name)
-                    app.ReviewerNameEdit.Value = prof.full_name;
-                end
-                if isfield(prof, 'hospital') && ~isempty(prof.hospital)
-                    app.HospitalFacilityEdit.Value = prof.hospital;
-                end
-                app.ReviewerRoleDropDown.Value = 'Consultant Ophthalmologist';
+                % Lock and pre-fill reviewer fields using verified account credentials
+                applyDoctorLoginStateToReview(app);
 
                 docTitle = 'Doctor';
                 if isfield(prof, 'full_name'), docTitle = prof.full_name; end
