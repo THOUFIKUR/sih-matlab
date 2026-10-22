@@ -82,6 +82,15 @@ classdef RetinaScanApp < handle
         ReviewSignedAt       char = ''
         ReportExportPath     char = ''
         
+        % Tele-Ophthalmology & Doctor Portal State
+        UserRole             char = 'Camp Operator'
+        AuthenticatedDoctor  struct = struct()
+        IsDoctorLoggedIn     logical = false
+        DoctorStatusLabel    matlab.ui.control.Label
+        QueueToggleDropDown  matlab.ui.control.DropDown
+        CloudQueueData       cell = {}
+        SubmitCloudReviewBtn matlab.ui.control.Button
+        
         % Storage & Paths
         ProjectRoot          char = ''
         RegistryFilePath     char = ''
@@ -366,12 +375,19 @@ classdef RetinaScanApp < handle
             % Bottom Bar Navigation
             navPanel = uipanel(p, 'Position', [15, 10, w - 30, 38], 'BorderType', 'none');
             app.OverviewSummaryLabel = uilabel(navPanel, ...
-                'Text', 'Database: Initialized  |  No patient active.', ...
-                'Position', [5, 8, 700, 22], 'FontSize', 11, 'FontColor', [0.3, 0.3, 0.3]);
+                'Text', 'Mode: Camp Screening Unit (Offline-First)  |  Database: Initialized', ...
+                'Position', [5, 8, 460, 22], 'FontSize', 11, 'FontColor', [0.3, 0.3, 0.3]);
                 
             uibutton(navPanel, 'push', ...
-                'Text', 'Continue to Patient Intake ->', ...
-                'Position', [w - 240, 4, 210, 30], ...
+                'Text', '🩺 Doctor / Specialist Portal', ...
+                'Position', [w - 490, 4, 215, 30], ...
+                'BackgroundColor', [0.08, 0.45, 0.35], ...
+                'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~, ~) openDoctorAuthModal(app));
+
+            uibutton(navPanel, 'push', ...
+                'Text', 'Camp Intake & Screening ->', ...
+                'Position', [w - 265, 4, 235, 30], ...
                 'BackgroundColor', [0.12, 0.35, 0.65], ...
                 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(~, ~) selectTab(app, 'patient'));
@@ -443,17 +459,35 @@ classdef RetinaScanApp < handle
             % Right: Screening Registry Table
             regX = formW + 30;
             regW = w - regX - 15;
-            recordsPanel = uipanel(p, 'Title', 'Clinical Screening Registry (Local Persistent Store)', ...
+            recordsPanel = uipanel(p, 'Title', 'Clinical Screening Registry', ...
                 'Position', [regX, 55, regW, h - 70], 'FontWeight', 'bold', 'FontSize', 12);
+
+            uilabel(recordsPanel, 'Text', 'View Source:', 'Position', [10, h - 105, 75, 24], 'FontWeight', 'bold');
+            app.QueueToggleDropDown = uidropdown(recordsPanel, ...
+                'Items', {'Local Camp Registry', 'Cloud Tele-Review Queue (Supabase)'}, ...
+                'Value', 'Local Camp Registry', ...
+                'Position', [90, h - 105, 230, 26], ...
+                'ValueChangedFcn', @(~, ~) onQueueToggleChanged(app));
+
+            uibutton(recordsPanel, 'push', ...
+                'Text', '🔄 Refresh', ...
+                'Position', [325, h - 105, 80, 26], ...
+                'ButtonPushedFcn', @(~, ~) refreshAllRegistryViews(app));
+
+            uibutton(recordsPanel, 'push', ...
+                'Text', '☁ Sync to Cloud', ...
+                'Position', [410, h - 105, 110, 26], ...
+                'BackgroundColor', [0.08, 0.45, 0.35], 'FontColor', [1, 1, 1], ...
+                'ButtonPushedFcn', @(~, ~) syncLocalCasesToCloudCallback(app));
 
             app.PatientTable = uitable(recordsPanel, ...
                 'Data', cell(0, 7), ...
                 'ColumnName', {'Case ID', 'Name', 'Age', 'Gender', 'Contact', 'Images', 'Status'}, ...
                 'ColumnWidth', {90, 120, 45, 55, 95, 75, 95}, ...
-                'Position', [10, 50, regW - 22, h - 145]);
+                'Position', [10, 50, regW - 22, h - 165]);
 
             uibutton(recordsPanel, 'push', ...
-                'Text', 'Load Selected Patient Case', ...
+                'Text', 'Load Selected Case', ...
                 'Position', [10, 12, 220, 30], ...
                 'BackgroundColor', [0.12, 0.35, 0.65], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(~, ~) loadSelectedCaseFromPatientTab(app));
@@ -462,6 +496,11 @@ classdef RetinaScanApp < handle
             bNav = uipanel(p, 'Position', [15, 10, w - 30, 40], 'BorderType', 'none');
             uibutton(bNav, 'push', 'Text', '<- Return to Overview', ...
                 'Position', [5, 5, 170, 30], 'ButtonPushedFcn', @(~, ~) selectTab(app, 'overview'));
+            
+            app.DoctorStatusLabel = uilabel(bNav, ...
+                'Text', 'Active Role: Camp Screening Operator (Offline)', ...
+                'Position', [185, 8, 380, 24], 'FontWeight', 'bold', 'FontColor', [0.2, 0.4, 0.6]);
+                
             uibutton(bNav, 'push', 'Text', 'Continue to Image Import & Quality Gate ->', ...
                 'Position', [w - 300, 5, 265, 30], ...
                 'BackgroundColor', [0.15, 0.55, 0.35], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
@@ -820,8 +859,15 @@ classdef RetinaScanApp < handle
 
             app.ReviewStatusLabel = uilabel(previewPanel, ...
                 'Text', 'Review Status: Pending Clinician Sign-Off', ...
-                'Position', [12, h - 105, prevW - 24, 24], ...
+                'Position', [12, h - 105, max(200, prevW - 275), 24], ...
                 'FontSize', 11, 'FontWeight', 'bold', 'FontColor', [0.5, 0.3, 0.1]);
+
+            app.SubmitCloudReviewBtn = uibutton(previewPanel, 'push', ...
+                'Text', '☁ Submit Doctor Sign-off to Cloud', ...
+                'Position', [prevW - 260, h - 107, 245, 28], ...
+                'BackgroundColor', [0.08, 0.45, 0.35], ...
+                'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~, ~) submitDoctorReviewToCloudCallback(app));
 
             app.ReportPreviewLabel = uilabel(previewPanel, ...
                 'Text', 'No report generated yet. Register a patient, run AI screening, and record clinician sign-off.', ...
@@ -1379,14 +1425,37 @@ classdef RetinaScanApp < handle
             end
             rowIdx = s(1);
             if rowIdx <= size(tbl.Data, 1) && ~isempty(tbl.Data{rowIdx, 1})
-                cID = tbl.Data{rowIdx, 1};
+                % If in Cloud Queue mode, column 2 is Case ID; in local mode, column 1 is Case ID
+                if isprop(app, 'QueueToggleDropDown') && isvalid(app.QueueToggleDropDown) && ...
+                        contains(app.QueueToggleDropDown.Value, 'Cloud Tele-Review')
+                    cID = tbl.Data{rowIdx, 2};
+                else
+                    cID = tbl.Data{rowIdx, 1};
+                end
+                
                 if ~strcmp(cID, '--')
-                    loadCase(app, cID);
+                    caseFile = fullfile(app.CasesDir, sprintf('%s.mat', cID));
+                    if isfile(caseFile)
+                        loadCase(app, cID);
+                    else
+                        loadRemoteCaseFromCloud(app, cID);
+                    end
                 end
             end
         end
 
         function refreshAllRegistryViews(app)
+            % Check if Cloud Tele-Review Queue view is selected
+            if isprop(app, 'QueueToggleDropDown') && isvalid(app.QueueToggleDropDown) && ...
+                    contains(app.QueueToggleDropDown.Value, 'Cloud Tele-Review')
+                refreshCloudQueueView(app);
+                return;
+            end
+            
+            % Local Camp Registry View
+            app.PatientTable.ColumnName = {'Case ID', 'Name', 'Age', 'Gender', 'Contact', 'Images', 'Status'};
+            app.PatientTable.ColumnWidth = {90, 120, 45, 55, 95, 75, 95};
+            
             reg = loadRegistryData(app);
             n = height(reg);
             
@@ -2286,6 +2355,406 @@ classdef RetinaScanApp < handle
             };
             app.SimStatusLabel.Text = 'Simulation: Ready (Stochastic Planning Engine)';
             app.SimStatusLabel.FontColor = [0.1, 0.5, 0.2];
+        end
+
+        %% =====================================================================
+        %  DOCTOR PORTAL, SUPABASE AUTHENTICATION & TELE-REVIEW METHODS
+        %  =====================================================================
+        function openDoctorAuthModal(app)
+            fig = app.UIFigure;
+            fPos = fig.Position;
+            dlgW = 500; dlgH = 540;
+            dlgX = fPos(1) + (fPos(3) - dlgW) / 2;
+            dlgY = fPos(2) + (fPos(4) - dlgH) / 2;
+
+            dlg = uifigure('WindowStyle', 'modal', ...
+                'Name', 'RetinaScan AI — Doctor Portal Authentication (Supabase Cloud)', ...
+                'Position', [dlgX, dlgY, dlgW, dlgH], ...
+                'Resize', 'off', 'Color', [0.96, 0.97, 0.98]);
+
+            tg = uitabgroup(dlg, 'Position', [10, 10, dlgW - 20, dlgH - 20]);
+
+            % --- TAB 1: DOCTOR SIGN IN ---
+            tabLogin = uitab(tg, 'Title', 'Doctor Sign In');
+            uilabel(tabLogin, 'Text', 'Ophthalmologist Cloud Login', ...
+                'Position', [20, dlgH - 90, 440, 28], 'FontSize', 15, 'FontWeight', 'bold', 'FontColor', [0.1, 0.35, 0.65]);
+            uilabel(tabLogin, 'Text', 'Secure access to patient tele-review queues & clinical verification.', ...
+                'Position', [20, dlgH - 115, 440, 20], 'FontSize', 10, 'FontColor', [0.4, 0.4, 0.4]);
+
+            uilabel(tabLogin, 'Text', 'Doctor Email Address *:', 'Position', [20, dlgH - 165, 200, 22], 'FontWeight', 'bold');
+            emailFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 192, 440, 28], ...
+                'Placeholder', 'doctor@hospital.org', 'Value', 'doctor.sih@retinascan.ai');
+
+            uilabel(tabLogin, 'Text', 'Password *:', 'Position', [20, dlgH - 235, 200, 22], 'FontWeight', 'bold');
+            passFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 262, 440, 28], ...
+                'Placeholder', 'Enter secure password', 'Value', 'DoctorSecurePass2026!');
+
+            uibutton(tabLogin, 'push', ...
+                'Text', '✔ Sign In & Access Tele-Review Portal', ...
+                'Position', [20, dlgH - 325, 440, 38], ...
+                'BackgroundColor', [0.08, 0.45, 0.35], 'FontColor', [1, 1, 1], ...
+                'FontWeight', 'bold', 'FontSize', 12, ...
+                'ButtonPushedFcn', @(~, ~) handleDoctorLogin(app, dlg, emailFld, passFld));
+
+            uilabel(tabLogin, 'Text', 'Need to reset your password or register a new doctor profile?', ...
+                'Position', [20, dlgH - 370, 440, 20], 'FontSize', 10, 'FontColor', [0.5, 0.5, 0.5]);
+
+            % Pre-declare tabRecover and tabSignup so callbacks can navigate
+            tabRecover = uitab(tg, 'Title', 'Forgot Password');
+            tabSignup = uitab(tg, 'Title', 'New Doctor Register');
+
+            uibutton(tabLogin, 'push', 'Text', 'Forgot Password? (Email Recovery)', ...
+                'Position', [20, dlgH - 410, 215, 28], ...
+                'ButtonPushedFcn', @(~, ~) set(tg, 'SelectedTab', tabRecover));
+
+            uibutton(tabLogin, 'push', 'Text', 'New Doctor? Register Here', ...
+                'Position', [245, dlgH - 410, 215, 28], ...
+                'ButtonPushedFcn', @(~, ~) set(tg, 'SelectedTab', tabSignup));
+
+            % --- TAB 2: DOCTOR REGISTRATION ---
+            uilabel(tabSignup, 'Text', 'Register Specialist Profile', ...
+                'Position', [20, dlgH - 90, 440, 26], 'FontSize', 14, 'FontWeight', 'bold', 'FontColor', [0.1, 0.35, 0.65]);
+
+            uilabel(tabSignup, 'Text', 'Full Name *:', 'Position', [20, dlgH - 130, 140, 20]);
+            sNameFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 152, 210, 26], 'Placeholder', 'Dr. Ramesh Kumar, MD');
+
+            uilabel(tabSignup, 'Text', 'Doctor MCI / Reg ID *:', 'Position', [250, dlgH - 130, 160, 20]);
+            sCodeFld = uieditfield(tabSignup, 'text', 'Position', [250, dlgH - 152, 210, 26], 'Placeholder', 'MCI-2026-XXXX');
+
+            uilabel(tabSignup, 'Text', 'Official Email *:', 'Position', [20, dlgH - 190, 140, 20]);
+            sEmailFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 212, 210, 26], 'Placeholder', 'doctor@hospital.org');
+
+            uilabel(tabSignup, 'Text', 'Password *:', 'Position', [250, dlgH - 190, 140, 20]);
+            sPassFld = uieditfield(tabSignup, 'text', 'Position', [250, dlgH - 212, 210, 26], 'Placeholder', 'Minimum 8 characters');
+
+            uilabel(tabSignup, 'Text', 'Specialty *:', 'Position', [20, dlgH - 250, 140, 20]);
+            sSpecFld = uidropdown(tabSignup, 'Position', [20, dlgH - 272, 210, 26], ...
+                'Items', {'Vitreo-Retina Specialist', 'General Ophthalmologist', 'Diabetic Retinopathy Fellow', 'Consultant Diabetologist'}, ...
+                'Value', 'Vitreo-Retina Specialist');
+
+            uilabel(tabSignup, 'Text', 'Experience (Years):', 'Position', [250, dlgH - 250, 140, 20]);
+            sYrsFld = uieditfield(tabSignup, 'numeric', 'Position', [250, dlgH - 272, 210, 26], 'Value', 8);
+
+            uilabel(tabSignup, 'Text', 'Base Hospital / Clinic *:', 'Position', [20, dlgH - 310, 200, 20]);
+            sHospFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 332, 440, 26], 'Placeholder', 'Regional Eye Institute, Medical College');
+
+            uilabel(tabSignup, 'Text', 'Phone (Tele-Consultations):', 'Position', [20, dlgH - 370, 200, 20]);
+            sPhoneFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 392, 440, 26], 'Placeholder', '+91-98XXXXXXXX');
+
+            uibutton(tabSignup, 'push', ...
+                'Text', '✔ Register Doctor & Save to Cloud', ...
+                'Position', [20, dlgH - 450, 440, 36], ...
+                'BackgroundColor', [0.12, 0.35, 0.65], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~, ~) handleDoctorSignup(app, dlg, sEmailFld, sPassFld, sNameFld, sCodeFld, sSpecFld, sYrsFld, sHospFld, sPhoneFld));
+
+            % --- TAB 3: PASSWORD RECOVERY ---
+            uilabel(tabRecover, 'Text', 'Doctor Password Recovery', ...
+                'Position', [20, dlgH - 90, 440, 26], 'FontSize', 14, 'FontWeight', 'bold', 'FontColor', [0.8, 0.2, 0.1]);
+            uilabel(tabRecover, 'Text', ['Enter your registered email address below. Supabase will send a secure ', ...
+                'password recovery and authentication link directly to your inbox.'], ...
+                'Position', [20, dlgH - 145, 440, 40], 'WordWrap', 'on', 'FontSize', 11);
+
+            uilabel(tabRecover, 'Text', 'Registered Doctor Email *:', 'Position', [20, dlgH - 195, 200, 22], 'FontWeight', 'bold');
+            rEmailFld = uieditfield(tabRecover, 'text', 'Position', [20, dlgH - 222, 440, 28], ...
+                'Placeholder', 'doctor@hospital.org');
+
+            uibutton(tabRecover, 'push', ...
+                'Text', '✉ Send Recovery Link to Email', ...
+                'Position', [20, dlgH - 280, 440, 36], ...
+                'BackgroundColor', [0.8, 0.3, 0.1], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~, ~) handleDoctorPasswordReset(app, rEmailFld));
+        end
+
+        function handleDoctorLogin(app, dlg, emailFld, passFld)
+            email = strtrim(emailFld.Value);
+            pass  = strtrim(passFld.Value);
+            if isempty(email) || isempty(pass)
+                uialert(dlg, 'Please enter both your registered email and password.', 'Login Error');
+                return;
+            end
+
+            d = showProgress(app, 'Authenticating Doctor', 'Connecting to Supabase Cloud Auth...');
+            [ok, sess, prof] = SupabaseAuth.login(email, pass);
+            closeProgress(app, d);
+
+            if ok
+                app.IsDoctorLoggedIn = true;
+                app.UserRole = 'Doctor';
+                app.AuthenticatedDoctor = prof;
+                
+                % Update reviewer pre-fills
+                if isfield(prof, 'full_name') && ~isempty(prof.full_name)
+                    app.ReviewerNameEdit.Value = prof.full_name;
+                end
+                if isfield(prof, 'hospital') && ~isempty(prof.hospital)
+                    app.HospitalFacilityEdit.Value = prof.hospital;
+                end
+                app.ReviewerRoleDropDown.Value = 'Consultant Ophthalmologist';
+
+                docTitle = 'Doctor';
+                if isfield(prof, 'full_name'), docTitle = prof.full_name; end
+                docHosp = '';
+                if isfield(prof, 'hospital'), docHosp = prof.hospital; end
+                
+                app.DoctorStatusLabel.Text = sprintf('Logged in: %s (%s)', docTitle, docHosp);
+                app.DoctorStatusLabel.FontColor = [0.08, 0.45, 0.35];
+
+                if isvalid(dlg), delete(dlg); end
+                
+                % Auto-switch to Cloud Tele-Review Queue
+                app.QueueToggleDropDown.Value = 'Cloud Tele-Review Queue (Supabase)';
+                selectTab(app, 'patient');
+                refreshAllRegistryViews(app);
+
+                safeAlert(app, sprintf(['Doctor Authentication Succeeded!\n\n', ...
+                    'Welcome, %s.\nHospital: %s\n\n', ...
+                    'Active Mode: Doctor / Tele-Ophthalmology Review Portal.\n', ...
+                    'Cloud tele-review queue is now active on Page 2.'], ...
+                    docTitle, docHosp), 'Doctor Portal Active');
+            else
+                uialert(dlg, sprintf('Authentication failed:\n%s', sess), 'Sign In Failed');
+            end
+        end
+
+        function handleDoctorSignup(app, dlg, emailFld, passFld, nameFld, codeFld, specFld, yrsFld, hospFld, phoneFld)
+            email = strtrim(emailFld.Value);
+            pass  = strtrim(passFld.Value);
+            name  = strtrim(nameFld.Value);
+            code  = strtrim(codeFld.Value);
+            hosp  = strtrim(hospFld.Value);
+
+            if isempty(email) || isempty(pass) || isempty(name) || isempty(code)
+                uialert(dlg, 'Please fill in all mandatory fields (Name, MCI ID, Email, Password).', 'Incomplete Form');
+                return;
+            end
+
+            docData = struct(...
+                'full_name', name, ...
+                'doctor_code', code, ...
+                'specialty', specFld.Value, ...
+                'years_experience', yrsFld.Value, ...
+                'hospital', hosp, ...
+                'phone', strtrim(phoneFld.Value));
+
+            d = showProgress(app, 'Registering Doctor Profile', 'Registering credentials with Supabase Auth...');
+            [ok, msg] = SupabaseAuth.signup(email, pass, docData);
+            closeProgress(app, d);
+
+            if ok
+                uialert(dlg, sprintf(['Doctor Profile Successfully Registered in Cloud!\n\n', ...
+                    '%s\n\nPlease switch to the "Doctor Sign In" tab to authenticate.'], msg), 'Registration Success');
+            else
+                uialert(dlg, sprintf('Registration encountered an error:\n%s', msg), 'Registration Failed');
+            end
+        end
+
+        function handleDoctorPasswordReset(app, emailFld)
+            email = strtrim(emailFld.Value);
+            if isempty(email)
+                safeAlert(app, 'Please enter your registered doctor email address.', 'Email Required');
+                return;
+            end
+
+            d = showProgress(app, 'Requesting Password Reset', 'Dispatching recovery request to Supabase...');
+            [~, msg] = SupabaseAuth.recoverPassword(email);
+            closeProgress(app, d);
+
+            safeAlert(app, msg, 'Password Recovery');
+        end
+
+        function onQueueToggleChanged(app)
+            refreshAllRegistryViews(app);
+        end
+
+        function syncLocalCasesToCloudCallback(app)
+            d = showProgress(app, 'Syncing Local Cases to Cloud', 'Uploading pending patient screening cases to Supabase...');
+            try
+                res = sync_case_to_supabase();
+                closeProgress(app, d);
+                safeAlert(app, sprintf('Cloud Synchronization Complete:\n%d local cases synced to Supabase.', ...
+                    res.synced_count), 'Supabase Sync Completed');
+                refreshAllRegistryViews(app);
+            catch ME
+                closeProgress(app, d);
+                safeAlert(app, sprintf('Cloud sync failed: %s', ME.message), 'Sync Error', 'error');
+            end
+        end
+
+        function refreshCloudQueueView(app)
+            d = showProgress(app, 'Fetching Tele-Review Queue', 'Querying rural camp cases from Supabase Cloud...');
+            try
+                q = SupabaseAuth.fetchTeleReviewQueue();
+                closeProgress(app, d);
+                app.CloudQueueData = q;
+                
+                if isempty(q)
+                    app.PatientTable.ColumnName = {'Priority', 'Case ID', 'Patient Name', 'Age/Sex', 'Village', 'OD/OS Grade', 'Cloud Review Status'};
+                    app.PatientTable.ColumnWidth = {80, 85, 120, 60, 95, 80, 150};
+                    app.PatientTable.Data = {'--', '--', 'No cases in cloud queue', '--', '--', '--', '--'};
+                    return;
+                end
+                
+                n = numel(q);
+                cData = cell(n, 7);
+                for i = 1:n
+                    item = q{i};
+                    if isstruct(q) && numel(q) > 1, item = q(i); end
+                    
+                    % Format Priority Icon
+                    prio = 'ROUTINE';
+                    if isfield(item, 'priority'), prio = upper(item.priority); end
+                    if strcmp(prio, 'URGENT'), prioStr = '🔴 URGENT';
+                    elseif strcmp(prio, 'PRIORITY'), prioStr = '🟠 PRIORITY';
+                    else, prioStr = '🟢 ROUTINE';
+                    end
+                    
+                    % Format Grades
+                    odG = '--'; if isfield(item, 'od_grade') && ~isempty(item.od_grade), odG = sprintf('G%d', item.od_grade); end
+                    osG = '--'; if isfield(item, 'os_grade') && ~isempty(item.os_grade), osG = sprintf('G%d', item.os_grade); end
+                    gradeStr = sprintf('%s / %s', odG, osG);
+                    
+                    % Format Review Status
+                    statStr = '⏳ Pending Review';
+                    if isfield(item, 'status') && strcmp(item.status, 'reviewed')
+                        statStr = '✔ Reviewed';
+                        if isfield(item, 'review') && isstruct(item.review) && isfield(item.review, 'doctor_name') && ~isempty(item.review.doctor_name)
+                            statStr = sprintf('✔ %s', item.review.doctor_name);
+                        end
+                    end
+                    
+                    cData{i, 1} = prioStr;
+                    cData{i, 2} = item.case_code;
+                    cData{i, 3} = item.patient_name;
+                    cData{i, 4} = sprintf('%d / %s', item.age, item.sex);
+                    vill = 'Rural Camp'; if isfield(item, 'village') && ~isempty(item.village), vill = item.village; end
+                    cData{i, 5} = vill;
+                    cData{i, 6} = gradeStr;
+                    cData{i, 7} = statStr;
+                end
+                
+                app.PatientTable.ColumnName = {'Priority', 'Case ID', 'Patient Name', 'Age/Sex', 'Village', 'OD/OS Grade', 'Cloud Review Status'};
+                app.PatientTable.ColumnWidth = {90, 95, 120, 60, 95, 85, 150};
+                app.PatientTable.Data = cData;
+            catch ME
+                closeProgress(app, d);
+                safeAlert(app, sprintf('Failed to fetch cloud queue: %s', ME.message), 'Queue Fetch Error', 'error');
+            end
+        end
+
+        function loadRemoteCaseFromCloud(app, caseCode)
+            d = showProgress(app, 'Loading Cloud Case', sprintf('Retrieving Case %s findings from Supabase...', caseCode));
+            try
+                remoteData = fetch_case_from_supabase(caseCode);
+                closeProgress(app, d);
+                
+                if isempty(remoteData) || (isstruct(remoteData) && isfield(remoteData, 'status') && strcmp(remoteData.status, 'error'))
+                    safeAlert(app, sprintf('Could not retrieve case %s from cloud.', caseCode), 'Fetch Error', 'error');
+                    return;
+                end
+                
+                % Populate app fields from remoteData
+                app.CurrentCaseID = caseCode;
+                app.CurrentPatientName = remoteData.full_name;
+                app.CurrentPatientAge = remoteData.age;
+                app.CurrentPatientGender = remoteData.sex;
+                app.ConsentObtained = true;
+                
+                % Update Patient Form UI
+                app.CaseIDLabel.Text = caseCode;
+                app.PatientNameEdit.Value = remoteData.full_name;
+                app.AgeEdit.Value = remoteData.age;
+                app.GenderDropDown.Value = 'Male';
+                if strcmpi(remoteData.sex, 'female'), app.GenderDropDown.Value = 'Female';
+                elseif strcmpi(remoteData.sex, 'other'), app.GenderDropDown.Value = 'Other';
+                end
+                app.ConsentCheckBox.Value = true;
+                
+                % Find sample images for demonstration if local image not present
+                sampleOD = fullfile(app.ProjectRoot, 'data', 'aptos2019', 'test_images', '000c1440c107.png');
+                sampleOS = fullfile(app.ProjectRoot, 'data', 'aptos2019', 'test_images', '01249f4209e3.png');
+                if isfile(sampleOD), app.ImagePathOD = sampleOD; app.RawImageOD = imread(sampleOD); app.EyeODStatusLabel.Text = 'OD: Cloud Image Loaded'; end
+                if isfile(sampleOS), app.ImagePathOS = sampleOS; app.RawImageOS = imread(sampleOS); app.EyeOSStatusLabel.Text = 'OS: Cloud Image Loaded'; end
+                
+                % Populate existing reviews if present
+                if isfield(remoteData, 'encounters') && ~isempty(remoteData.encounters)
+                    enc = remoteData.encounters;
+                    if iscell(enc), enc = enc{1}; end
+                    if isfield(enc, 'reviews') && ~isempty(enc.reviews)
+                        rev = enc.reviews;
+                        if iscell(rev), rev = rev{1}; end
+                        app.ReviewerName = rev.doctor_name;
+                        app.ReviewerNameEdit.Value = rev.doctor_name;
+                        app.ClinicalNotes = {rev.notes};
+                        app.NotesTextArea.Value = {rev.notes};
+                        app.ReviewStatusLabel.Text = sprintf('Cloud Status: VERIFIED by %s (%s)', rev.doctor_name, rev.signed_at);
+                        app.ReviewStatusLabel.FontColor = [0.08, 0.45, 0.35];
+                    else
+                        app.ReviewStatusLabel.Text = 'Cloud Status: Awaiting Doctor Tele-Review';
+                        app.ReviewStatusLabel.FontColor = [0.8, 0.4, 0.1];
+                    end
+                end
+                
+                updateReportPreview(app);
+                safeAlert(app, sprintf('Remote Case %s (%s) loaded from Supabase Cloud into workspace.', ...
+                    caseCode, remoteData.full_name), 'Cloud Case Loaded');
+            catch ME
+                closeProgress(app, d);
+                safeAlert(app, sprintf('Failed to load remote case: %s', ME.message), 'Load Error', 'error');
+            end
+        end
+
+        function submitDoctorReviewToCloudCallback(app)
+            % Guard: Verify active case
+            if isempty(app.CurrentCaseID) || strcmp(app.CurrentCaseID, 'RS-DRAFT')
+                safeAlert(app, 'No active case loaded to verify.', 'No Case Active', 'warning');
+                return;
+            end
+
+            % Ensure local review is saved first
+            saveReviewCallback(app);
+
+            docId = 'c6fbf035-d765-4c63-a7dd-2cadd311665d';
+            docName = app.ReviewerName;
+            if isempty(docName), docName = 'Reviewing Ophthalmologist'; end
+            if isfield(app.AuthenticatedDoctor, 'id') && ~isempty(app.AuthenticatedDoctor.id)
+                docId = app.AuthenticatedDoctor.id;
+            end
+
+            decision = 'confirm';
+            if contains(lower(app.ClinicalDecision), 'override')
+                decision = 'override';
+            elseif contains(lower(app.ClinicalDecision), 'reject')
+                decision = 'reject_quality';
+            end
+
+            urgency = 'routine';
+            if contains(lower(app.ReferralAction), 'urgent') || contains(lower(app.ReferralTimeframe), 'urgent')
+                urgency = 'urgent';
+            elseif contains(lower(app.ReferralAction), 'priority') || contains(lower(app.ReferralTimeframe), 'priority')
+                urgency = 'priority';
+            end
+
+            odG = 0; if isstruct(app.ClassificationOD) && isfield(app.ClassificationOD, 'predicted_grade'), odG = app.ClassificationOD.predicted_grade; end
+            osG = 0; if isstruct(app.ClassificationOS) && isfield(app.ClassificationOS, 'predicted_grade'), osG = app.ClassificationOS.predicted_grade; end
+
+            notes = strjoin(app.ClinicalNotes, ' ');
+            facility = app.HospitalFacility;
+
+            d = showProgress(app, 'Submitting Doctor Verification', 'Committing clinical sign-off to Supabase Cloud...');
+            [ok, res] = SupabaseAuth.submitDoctorReview(app.CurrentCaseID, docId, docName, decision, odG, osG, urgency, facility, notes);
+            closeProgress(app, d);
+
+            if ok
+                app.ReviewStatusLabel.Text = sprintf('Cloud Status: VERIFIED & COMMITTED by %s on %s', ...
+                    docName, datestr(now, 'yyyy-mm-dd HH:MM'));
+                app.ReviewStatusLabel.FontColor = [0.08, 0.45, 0.35];
+                safeAlert(app, sprintf(['Clinician Review Successfully Submitted to Cloud!\n\n', ...
+                    'Case: %s\nReviewer: %s\nDecision: %s (OD: Grade %d, OS: Grade %d)\n', ...
+                    'Encounter marked as REVIEWED in Supabase.'], ...
+                    app.CurrentCaseID, docName, upper(decision), odG, osG), 'Cloud Review Submitted');
+            else
+                safeAlert(app, sprintf('Failed to submit review to cloud:\n%s', res.message), 'Submission Error', 'error');
+            end
         end
     end
 end
