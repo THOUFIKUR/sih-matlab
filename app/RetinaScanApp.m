@@ -43,6 +43,8 @@ classdef RetinaScanApp < handle
         ConsentObtained      logical = false
         CaseCreatedAt        char = ''
         CaseUpdatedAt        char = ''
+        CurrentVisitCount    double = 1
+        PreviousEncounters   = {}
         
         % Images & Laterality (OD = Right, OS = Left)
         ActiveEye            char = 'OD'
@@ -90,6 +92,7 @@ classdef RetinaScanApp < handle
         QueueToggleDropDown  matlab.ui.control.DropDown
         CloudQueueData       = {}
         SubmitCloudReviewBtn matlab.ui.control.Button
+        CloudSyncIndicatorLabel matlab.ui.control.Label
         
         % Storage & Paths
         ProjectRoot          char = ''
@@ -409,8 +412,9 @@ classdef RetinaScanApp < handle
                 
             uilabel(formPanel, 'Text', 'Full Name *:', 'Position', [20, h - 160, 110, 22]);
             app.PatientNameEdit = uieditfield(formPanel, 'text', 'Value', '', ...
-                'Placeholder', 'Enter patient full name', ...
-                'Position', [140, h - 160, 320, 26]);
+                'Placeholder', 'Alphabetic name only (letters & spaces)', ...
+                'Position', [140, h - 160, 320, 26], ...
+                'ValueChangedFcn', @(src, ~) onPatientNameEditChanged(app, src));
                 
             uilabel(formPanel, 'Text', 'Age (Years) *:', 'Position', [20, h - 200, 110, 22]);
             app.AgeEdit = uieditfield(formPanel, 'numeric', 'Value', 0, ...
@@ -421,14 +425,18 @@ classdef RetinaScanApp < handle
                 'Value', 'Male', 'Position', [310, h - 200, 150, 26]);
 
             uilabel(formPanel, 'Text', 'Contact Phone:', 'Position', [20, h - 240, 110, 22]);
+            uilabel(formPanel, 'Text', '+91', 'Position', [140, h - 240, 32, 26], ...
+                'FontWeight', 'bold', 'FontSize', 11, 'FontColor', [0.2, 0.3, 0.4]);
             app.ContactEdit = uieditfield(formPanel, 'text', 'Value', '', ...
-                'Placeholder', 'Optional 10-digit mobile number', ...
-                'Position', [140, h - 240, 320, 26]);
+                'Placeholder', '10-digit mobile number', ...
+                'Position', [175, h - 240, 285, 26], ...
+                'ValueChangedFcn', @(src, ~) onContactPhoneEditChanged(app, src));
 
             uilabel(formPanel, 'Text', 'Insurance / Health ID:', 'Position', [20, h - 280, 130, 22]);
             app.InsuranceEdit = uieditfield(formPanel, 'text', 'Value', '', ...
-                'Placeholder', 'Optional member / payer ID', ...
-                'Position', [155, h - 280, 305, 26]);
+                'Placeholder', 'Optional member / payer ID (e.g. ABHA-1234)', ...
+                'Position', [155, h - 280, 305, 26], ...
+                'ValueChangedFcn', @(src, ~) onInsuranceEditChanged(app, src));
 
             uilabel(formPanel, 'Text', 'Diabetes Duration:', 'Position', [20, h - 320, 110, 22]);
             app.DiabetesDurationEdit = uieditfield(formPanel, 'numeric', 'Value', 0, ...
@@ -445,16 +453,11 @@ classdef RetinaScanApp < handle
                 'Value', false, 'Position', [20, h - 410, 440, 26]);
 
             uibutton(formPanel, 'push', ...
-                'Text', 'Save Patient Record', ...
-                'Position', [20, 20, 215, 36], ...
+                'Text', '✔ Save Patient Record & Advance', ...
+                'Position', [20, 20, 440, 36], ...
                 'BackgroundColor', [0.12, 0.35, 0.65], ...
                 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(btn, event) savePatientCallback(app));
-
-            uibutton(formPanel, 'push', ...
-                'Text', 'Start New Case', ...
-                'Position', [245, 20, 215, 36], ...
-                'ButtonPushedFcn', @(btn, event) onStartNewCaseButtonPushed(app));
+                'ButtonPushedFcn', @(~, ~) savePatientCallback(app));
 
             % Right: Screening Registry Table
             regX = formW + 30;
@@ -474,11 +477,10 @@ classdef RetinaScanApp < handle
                 'Position', [325, h - 105, 80, 26], ...
                 'ButtonPushedFcn', @(~, ~) refreshAllRegistryViews(app));
 
-            uibutton(recordsPanel, 'push', ...
-                'Text', '☁ Sync to Cloud', ...
-                'Position', [410, h - 105, 110, 26], ...
-                'BackgroundColor', [0.08, 0.45, 0.35], 'FontColor', [1, 1, 1], ...
-                'ButtonPushedFcn', @(~, ~) syncLocalCasesToCloudCallback(app));
+            app.CloudSyncIndicatorLabel = uilabel(recordsPanel, ...
+                'Text', '🟢 Auto-Sync Cloud Active', ...
+                'Position', [415, h - 105, 185, 26], ...
+                'FontColor', [0.12, 0.50, 0.25], 'FontWeight', 'bold');
 
             app.PatientTable = uitable(recordsPanel, ...
                 'Data', cell(0, 7), ...
@@ -863,27 +865,26 @@ classdef RetinaScanApp < handle
                 'FontSize', 11, 'FontWeight', 'bold', 'FontColor', [0.5, 0.3, 0.1]);
 
             app.SubmitCloudReviewBtn = uibutton(previewPanel, 'push', ...
-                'Text', '☁ Submit Doctor Sign-off to Cloud', ...
-                'Position', [prevW - 260, h - 107, 245, 28], ...
-                'BackgroundColor', [0.08, 0.45, 0.35], ...
-                'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(~, ~) submitDoctorReviewToCloudCallback(app));
+                'Text', '☁ Auto-Sync Live Tele-Review', ...
+                'Position', [prevW - 240, h - 107, 225, 26], ...
+                'BackgroundColor', [0.94, 0.97, 0.95], ...
+                'FontColor', [0.08, 0.45, 0.35], 'FontWeight', 'bold', 'Enable', 'off');
 
             app.ReportPreviewLabel = uilabel(previewPanel, ...
                 'Text', 'No report generated yet. Register a patient, run AI screening, and record clinician sign-off.', ...
                 'Position', [12, 12, prevW - 24, h - 125], 'FontName', 'Courier New', 'FontSize', 10);
 
-            % Bottom Navigation Bar with prominent "Finish & Save Case (Start New Patient)"
+            % Bottom Navigation Bar with single unified "Finish, Save & Submit Sign-Off to Cloud"
             bNav = uipanel(p, 'Position', [15, 10, w - 30, 40], 'BorderType', 'none');
             uibutton(bNav, 'push', 'Text', '<- Back to AI Screening', ...
                 'Position', [5, 5, 160, 30], 'ButtonPushedFcn', @(~, ~) selectTab(app, 'screening'));
             uibutton(bNav, 'push', 'Text', 'Return to Overview', ...
                 'Position', [175, 5, 130, 30], 'ButtonPushedFcn', @(~, ~) selectTab(app, 'overview'));
             
-            uibutton(bNav, 'push', 'Text', '✔ FINISH & SAVE CASE (Start New Patient)', ...
-                'Position', [315, 5, 290, 30], ...
-                'BackgroundColor', [0.12, 0.50, 0.25], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(~, ~) finishAndStartNewPatientCallback(app));
+            uibutton(bNav, 'push', 'Text', '✔ FINISH, SAVE & SUBMIT SIGN-OFF TO CLOUD', ...
+                'Position', [315, 5, 340, 30], ...
+                'BackgroundColor', [0.08, 0.45, 0.35], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~, ~) finishSaveAndSubmitCallback(app));
 
             uibutton(bNav, 'push', 'Text', 'Clinic Workflow Simulation ->', ...
                 'Position', [w - 230, 5, 200, 30], ...
@@ -1165,37 +1166,160 @@ classdef RetinaScanApp < handle
             end
         end
 
-        % Patient Save
+        % Patient Field Validators
+        function onPatientNameEditChanged(~, src)
+            clean = regexprep(src.Value, '[^a-zA-Z\s\.]', '');
+            src.Value = clean;
+        end
+
+        function onContactPhoneEditChanged(~, src)
+            clean = regexprep(src.Value, '\D', '');
+            if length(clean) == 12 && startsWith(clean, '91')
+                clean = clean(3:end);
+            end
+            if length(clean) > 10
+                clean = clean(1:10);
+            end
+            src.Value = clean;
+        end
+
+        function onInsuranceEditChanged(~, src)
+            src.Value = upper(regexprep(strtrim(src.Value), '[^a-zA-Z0-9\-]', ''));
+        end
+
+        % Patient Save & Deduplication
         function savePatientCallback(app)
-            pName = strtrim(app.PatientNameEdit.Value);
-            if isempty(pName)
-                safeAlert(app, 'Please enter the patient full name.', 'Validation Error', 'warning');
+            pName = strtrim(regexprep(app.PatientNameEdit.Value, '[^a-zA-Z\s\.]', ''));
+            app.PatientNameEdit.Value = pName;
+            if isempty(pName) || length(pName) < 2
+                safeAlert(app, 'Please enter a valid patient full name (letters only, no numbers or special symbols).', 'Validation Error', 'warning');
                 return;
             end
-            if app.AgeEdit.Value <= 0
-                safeAlert(app, 'Please enter a valid patient age.', 'Validation Error', 'warning');
-                return;
-            end
-            if ~app.ConsentCheckBox.Value
-                safeAlert(app, 'Patient informed consent is required to proceed.', 'Consent Required', 'warning');
+            if app.AgeEdit.Value <= 0 || app.AgeEdit.Value > 120
+                safeAlert(app, 'Please enter a valid patient age between 1 and 120 years.', 'Validation Error', 'warning');
                 return;
             end
             
+            cleanPhone = regexprep(app.ContactEdit.Value, '\D', '');
+            if length(cleanPhone) == 12 && startsWith(cleanPhone, '91')
+                cleanPhone = cleanPhone(3:end);
+            end
+            if ~isempty(cleanPhone) && length(cleanPhone) ~= 10
+                safeAlert(app, 'Contact phone number must be exactly 10 digits (+91 standard).', 'Invalid Phone', 'warning');
+                return;
+            end
+            app.ContactEdit.Value = cleanPhone;
+
+            cleanIns = upper(strtrim(regexprep(app.InsuranceEdit.Value, '[^a-zA-Z0-9\-]', '')));
+            app.InsuranceEdit.Value = cleanIns;
+
+            if ~app.ConsentCheckBox.Value
+                safeAlert(app, 'Patient informed consent is required to proceed with retinal screening.', 'Consent Required', 'warning');
+                return;
+            end
+
+            % Check for existing patient record (Match by Insurance ID, Phone, or Name+Age)
+            existingCaseID = '';
+            existingVisits = 1;
+            reg = loadRegistryData(app);
+            if istable(reg) && ~isempty(reg) && height(reg) > 0
+                for r = 1:height(reg)
+                    rCase = reg.CaseID{r};
+                    rName = ''; if ismember('Name', reg.Properties.VariableNames), rName = reg.Name{r}; end
+                    rAge = 0; if ismember('Age', reg.Properties.VariableNames), rAge = reg.Age(r); end
+                    rContact = ''; if ismember('Contact', reg.Properties.VariableNames), rContact = regexprep(reg.Contact{r}, '\D', ''); end
+                    
+                    % 1. Match Insurance ID
+                    if ~isempty(cleanIns)
+                        matF = fullfile(app.CasesDir, sprintf('%s.mat', rCase));
+                        if isfile(matF)
+                            try
+                                sCase = load(matF, 'caseData');
+                                if isfield(sCase.caseData, 'InsuranceID') && strcmpi(strtrim(sCase.caseData.InsuranceID), cleanIns)
+                                    existingCaseID = rCase;
+                                    break;
+                                end
+                            catch
+                            end
+                        end
+                    end
+                    
+                    % 2. Match 10-digit Phone
+                    if ~isempty(cleanPhone) && length(cleanPhone) == 10 && ~isempty(rContact) && contains(rContact, cleanPhone)
+                        existingCaseID = rCase;
+                        break;
+                    end
+                    
+                    % 3. Match Name and Age
+                    if ~isempty(pName) && strcmpi(strtrim(rName), pName) && abs(rAge - app.AgeEdit.Value) <= 1
+                        existingCaseID = rCase;
+                        break;
+                    end
+                end
+            end
+
+            isReturning = ~isempty(existingCaseID);
+            if isReturning
+                targetCaseID = existingCaseID;
+                matF = fullfile(app.CasesDir, sprintf('%s.mat', targetCaseID));
+                if isfile(matF)
+                    try
+                        sCase = load(matF, 'caseData');
+                        if isfield(sCase.caseData, 'VisitCount')
+                            existingVisits = sCase.caseData.VisitCount + 1;
+                        else
+                            existingVisits = 2;
+                        end
+                    catch
+                        existingVisits = 2;
+                    end
+                end
+            else
+                targetCaseID = app.CurrentCaseID;
+                existingVisits = 1;
+            end
+            
+            app.CurrentCaseID        = targetCaseID;
+            app.CurrentVisitCount    = existingVisits;
             app.CurrentPatientName   = pName;
             app.CurrentPatientAge    = app.AgeEdit.Value;
             app.CurrentPatientGender = app.GenderDropDown.Value;
-            app.CurrentContact       = strtrim(app.ContactEdit.Value);
-            app.CurrentInsuranceID   = strtrim(app.InsuranceEdit.Value);
+            app.CurrentContact       = cleanPhone;
+            app.CurrentInsuranceID   = cleanIns;
             app.CurrentDMDuration    = app.DiabetesDurationEdit.Value;
             app.CurrentHbA1c         = app.HbA1cEdit.Value;
             app.ConsentObtained      = true;
             app.CaseUpdatedAt        = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+            app.CaseIDLabel.Text     = targetCaseID;
             
-            % Persist to both Case MAT file and Registry
+            % Persist to both Case MAT file and Registry, and auto-sync to Supabase
             saveActiveCase(app);
             refreshAllRegistryViews(app);
             
-            safeAlert(app, sprintf('Patient %s (Case %s) successfully registered.', pName, app.CurrentCaseID), 'Registration Saved');
+            if isReturning
+                alertMsg = sprintf(['Returning Patient Recognized!\n\n', ...
+                    '• Patient Record: %s (Case %s)\n', ...
+                    '• Visit Sequence: Visit #%d\n', ...
+                    '• Previous medical records & screening history linked.\n\n', ...
+                    'Screening details ready. Proceed to Image Import & Quality Gate.'], ...
+                    pName, targetCaseID, existingVisits);
+            else
+                alertMsg = sprintf(['Patient %s Successfully Registered!\n\n', ...
+                    '• Case ID: %s (Visit #1)\n', ...
+                    '• Demographics recorded & auto-synced with cloud.\n\n', ...
+                    'Proceed to Image Import & Quality Gate.'], ...
+                    pName, targetCaseID);
+            end
+            safeAlert(app, alertMsg, 'Patient Registered');
+
+            % Reset form inputs so ready for next patient
+            app.PatientNameEdit.Value = '';
+            app.AgeEdit.Value = 0;
+            app.ContactEdit.Value = '';
+            app.InsuranceEdit.Value = '';
+            app.DiabetesDurationEdit.Value = 0;
+            app.HbA1cEdit.Value = 0;
+            app.ConsentCheckBox.Value = false;
         end
 
         % Storage & Persistence Layer
@@ -1231,6 +1355,7 @@ classdef RetinaScanApp < handle
             caseData.ConsentObtained = app.ConsentObtained;
             caseData.CreatedAt = app.CaseCreatedAt;
             caseData.UpdatedAt = app.CaseUpdatedAt;
+            caseData.VisitCount = app.CurrentVisitCount;
             
             caseData.ImagePathOD = app.ImagePathOD;
             caseData.ImagePathOS = app.ImagePathOS;
@@ -1316,6 +1441,11 @@ classdef RetinaScanApp < handle
             app.ConsentObtained      = cd.ConsentObtained;
             app.CaseCreatedAt        = cd.CreatedAt;
             app.CaseUpdatedAt        = cd.UpdatedAt;
+            if isfield(cd, 'VisitCount')
+                app.CurrentVisitCount = cd.VisitCount;
+            else
+                app.CurrentVisitCount = 1;
+            end
             
             % Update Patient Form UI
             app.CaseIDLabel.Text          = cd.CaseID;
@@ -2147,6 +2277,19 @@ classdef RetinaScanApp < handle
             odDets = 0; if istable(app.DetectionsTableOD), odDets = height(app.DetectionsTableOD); end
             osDets = 0; if istable(app.DetectionsTableOS), osDets = height(app.DetectionsTableOS); end
             
+            contactStr = app.CurrentContact;
+            if ~isempty(contactStr) && ~startsWith(contactStr, '+91')
+                contactStr = ['+91 ', contactStr];
+            end
+            if isempty(contactStr), contactStr = '--'; end
+            insStr = app.CurrentInsuranceID;
+            if isempty(insStr), insStr = '--'; end
+
+            visitHistoryLine = sprintf('Clinical History: Visit #%d (Screening Encounter)\n', app.CurrentVisitCount);
+            if app.CurrentVisitCount > 1
+                visitHistoryLine = sprintf('Clinical History: Visit #%d (Returning Patient — Prior Encounters Linked)\n', app.CurrentVisitCount);
+            end
+
             repText = sprintf([...
                 '=========================================================================\n', ...
                 '         RETINASCAN AI — SCREENING SUMMARY (PROTOTYPE REPORT)\n', ...
@@ -2154,6 +2297,7 @@ classdef RetinaScanApp < handle
                 'Case ID: %s               Date: %s\n', ...
                 'Patient Name: %s          Age / Gender: %d / %s\n', ...
                 'Contact: %s               Insurance ID: %s\n', ...
+                '%s', ...
                 '-------------------------------------------------------------------------\n', ...
                 'RIGHT EYE (OD):\n', ...
                 '  Quality: %s  |  AI Grade: %s\n', ...
@@ -2175,7 +2319,7 @@ classdef RetinaScanApp < handle
                 '=========================================================================\n'], ...
                 app.CurrentCaseID, datestr(now, 'yyyy-mm-dd HH:MM'), ...
                 app.CurrentPatientName, app.CurrentPatientAge, app.CurrentPatientGender, ...
-                app.CurrentContact, app.CurrentInsuranceID, ...
+                contactStr, insStr, visitHistoryLine, ...
                 app.QualityStatusOD, odGrade, odDets, ...
                 app.QualityStatusOS, osGrade, osDets, ...
                 rName, app.ReviewerRoleDropDown.Value, ...
@@ -2270,22 +2414,106 @@ classdef RetinaScanApp < handle
             end
         end
 
+        function finishSaveAndSubmitCallback(app)
+            % Guard: Verify active case
+            if isempty(app.CurrentCaseID) || strcmp(app.CurrentCaseID, 'RS-DRAFT')
+                safeAlert(app, 'No active case loaded to finalize.', 'No Case Active', 'warning');
+                return;
+            end
+
+            d = showProgress(app, 'Finalizing Case & Cloud Sync', ...
+                'Saving case locally and synchronizing clinician sign-off to Supabase Cloud...');
+            try
+                % 1. Save local review fields
+                if isprop(app, 'ReviewerNameEdit') && isvalid(app.ReviewerNameEdit)
+                    app.ReviewerName = strtrim(app.ReviewerNameEdit.Value);
+                end
+                if isprop(app, 'ReviewerRoleDropDown') && isvalid(app.ReviewerRoleDropDown)
+                    app.ReviewerRole = app.ReviewerRoleDropDown.Value;
+                end
+                if isprop(app, 'DecisionDropDown') && isvalid(app.DecisionDropDown)
+                    app.ClinicalDecision = app.DecisionDropDown.Value;
+                end
+                if isprop(app, 'ReferralDropDown') && isvalid(app.ReferralDropDown)
+                    app.ReferralAction = app.ReferralDropDown.Value;
+                end
+                if isprop(app, 'HospitalFacilityEdit') && isvalid(app.HospitalFacilityEdit)
+                    app.HospitalFacility = strtrim(app.HospitalFacilityEdit.Value);
+                end
+                if isprop(app, 'ReferralTimeframeDropDown') && isvalid(app.ReferralTimeframeDropDown)
+                    app.ReferralTimeframe = app.ReferralTimeframeDropDown.Value;
+                end
+                if isprop(app, 'NotesTextArea') && isvalid(app.NotesTextArea)
+                    app.ClinicalNotes = app.NotesTextArea.Value;
+                end
+                app.ReviewSaved = true;
+
+                % 2. Persist local case file & registry
+                saveActiveCase(app);
+                updateReportPreview(app);
+
+                % 3. Submit Clinician Sign-off to Supabase Cloud
+                docId = '089f216a-c6db-4c25-b53d-db4dbc026caf';
+                docName = app.ReviewerName;
+                if isempty(docName), docName = 'Dr. Thoufikur Rahaman, MD'; end
+                if isfield(app.AuthenticatedDoctor, 'doctor_id') && ~isempty(app.AuthenticatedDoctor.doctor_id)
+                    docId = app.AuthenticatedDoctor.doctor_id;
+                elseif isfield(app.AuthenticatedDoctor, 'id') && ~isempty(app.AuthenticatedDoctor.id)
+                    docId = app.AuthenticatedDoctor.id;
+                end
+
+                decision = 'confirm';
+                if contains(lower(app.ClinicalDecision), 'override')
+                    decision = 'override';
+                elseif contains(lower(app.ClinicalDecision), 'reject')
+                    decision = 'reject_quality';
+                end
+
+                urgency = 'routine';
+                if contains(lower(app.ReferralAction), 'urgent') || contains(lower(app.ReferralTimeframe), 'urgent')
+                    urgency = 'urgent';
+                elseif contains(lower(app.ReferralAction), 'priority') || contains(lower(app.ReferralTimeframe), 'priority')
+                    urgency = 'priority';
+                end
+
+                odG = 0; if isstruct(app.ClassificationOD) && isfield(app.ClassificationOD, 'predicted_grade'), odG = app.ClassificationOD.predicted_grade; end
+                osG = 0; if isstruct(app.ClassificationOS) && isfield(app.ClassificationOS, 'predicted_grade'), osG = app.ClassificationOS.predicted_grade; end
+                notes = strjoin(app.ClinicalNotes, ' ');
+                facility = app.HospitalFacility;
+
+                [ok, res] = SupabaseAuth.submitDoctorReview(app.CurrentCaseID, docId, docName, decision, odG, osG, urgency, facility, notes);
+
+                closeProgress(app, d);
+
+                finishedCase = app.CurrentCaseID;
+                finishedPatient = app.CurrentPatientName;
+
+                if ok
+                    app.ReviewStatusLabel.Text = sprintf('Cloud Status: VERIFIED by %s on %s', docName, datestr(now, 'yyyy-mm-dd HH:MM'));
+                    app.ReviewStatusLabel.FontColor = [0.08, 0.45, 0.35];
+                    cloudMsg = 'Clinician sign-off successfully submitted to Supabase Cloud Tele-Review.';
+                else
+                    cloudMsg = sprintf('Cloud notice: %s (Preserved in offline queue).', res.message);
+                end
+
+                % 4. Reset patient intake form for the next patient
+                resetCurrentDraft(app);
+                refreshAllRegistryViews(app);
+                selectTab(app, 'patient');
+
+                safeAlert(app, sprintf(['Case %s (%s) Successfully Finalized!\n\n', ...
+                    '• Local case and report saved to persistent storage.\n', ...
+                    '• %s\n\n', ...
+                    'Patient form reset. Ready for next screening (Case %s).'], ...
+                    finishedCase, finishedPatient, cloudMsg, app.CurrentCaseID), 'Case Completed & Synced');
+            catch ME
+                closeProgress(app, d);
+                safeAlert(app, sprintf('Error finalizing case: %s', ME.message), 'Finalize Error', 'error');
+            end
+        end
+
         function finishAndStartNewPatientCallback(app)
-            % 1. Persist current case completely
-            saveActiveCase(app);
-            refreshAllRegistryViews(app);
-            
-            finishedCaseID = app.CurrentCaseID;
-            finishedPatient = app.CurrentPatientName;
-            
-            % 2. Start clean new patient intake
-            resetCurrentDraft(app);
-            refreshAllRegistryViews(app);
-            selectTab(app, 'patient');
-            
-            safeAlert(app, sprintf(['Case %s (%s) has been successfully saved to the persistent database!\n\n', ...
-                'Ready for new patient intake (New Case ID: %s).'], ...
-                finishedCaseID, finishedPatient, app.CurrentCaseID), 'Case Completed & Saved');
+            finishSaveAndSubmitCallback(app);
         end
 
         function openReportsFolder(app)
@@ -2393,19 +2621,21 @@ classdef RetinaScanApp < handle
                 'Position', [20, dlgH - 115, 440, 20], 'FontSize', 10, 'FontColor', [0.4, 0.4, 0.4]);
 
             uilabel(tabLogin, 'Text', 'Doctor Email Address *:', 'Position', [20, dlgH - 165, 200, 22], 'FontWeight', 'bold');
-            emailFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 192, 460, 28], ...
-                'Placeholder', 'doctor@hospital.org', 'Value', 'thoufikurrahaman@gmail.com');
+            emailFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 192, 470, 28], ...
+                'Placeholder', 'Enter registered doctor email (e.g. thoufikurrahaman@gmail.com)', 'Value', '');
 
             uilabel(tabLogin, 'Text', 'Password *:', 'Position', [20, dlgH - 235, 200, 22], 'FontWeight', 'bold');
-            passFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 262, 460, 28], ...
-                'Placeholder', 'Enter secure password', 'Value', 'Doctor2026!');
+            passFld = uieditfield(tabLogin, 'text', 'Position', [20, dlgH - 262, 385, 28], ...
+                'Placeholder', 'Enter password', 'Value', '');
+            eyeBtn1 = uibutton(tabLogin, 'push', 'Text', '👁 Hide', 'Position', [410, dlgH - 262, 80, 28], ...
+                'ButtonPushedFcn', @(btn, ~) toggleEyeField(app, passFld, btn));
 
             uibutton(tabLogin, 'push', ...
                 'Text', '✔ Sign In & Access Tele-Review Portal', ...
-                'Position', [20, dlgH - 325, 460, 38], ...
+                'Position', [20, dlgH - 325, 470, 38], ...
                 'BackgroundColor', [0.08, 0.45, 0.35], 'FontColor', [1, 1, 1], ...
                 'FontWeight', 'bold', 'FontSize', 12, ...
-                'ButtonPushedFcn', @(~, ~) handleDoctorLogin(app, dlg, emailFld, passFld));
+                'ButtonPushedFcn', @(~, ~) handleDoctorLogin(app, dlg, emailFld, passFld, eyeBtn1));
 
             uilabel(tabLogin, 'Text', 'Need to reset your password or register a new doctor profile?', ...
                 'Position', [20, dlgH - 370, 460, 20], 'FontSize', 10, 'FontColor', [0.5, 0.5, 0.5]);
@@ -2435,36 +2665,49 @@ classdef RetinaScanApp < handle
                 'ButtonPushedFcn', @(~, ~) delete(dlg));
 
             uilabel(tabSignup, 'Text', 'Full Name *:', 'Position', [20, dlgH - 125, 140, 20]);
-            sNameFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 147, 220, 26], 'Placeholder', 'Dr. Thoufikur Rahaman, MD');
+            sNameFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 147, 225, 26], ...
+                'Placeholder', 'Dr. Thoufikur Rahaman, MD', 'Value', '');
 
             uilabel(tabSignup, 'Text', 'Doctor MCI / Reg ID *:', 'Position', [260, dlgH - 125, 160, 20]);
-            sCodeFld = uieditfield(tabSignup, 'text', 'Position', [260, dlgH - 147, 220, 26], 'Placeholder', 'MCI-2026-XXXX');
+            sCodeFld = uieditfield(tabSignup, 'text', 'Position', [260, dlgH - 147, 230, 26], ...
+                'Placeholder', 'MCI-2026-786', 'Value', '');
 
             uilabel(tabSignup, 'Text', 'Official Email *:', 'Position', [20, dlgH - 185, 140, 20]);
-            sEmailFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 207, 220, 26], 'Placeholder', 'doctor@hospital.org');
+            sEmailFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 207, 225, 26], ...
+                'Placeholder', 'doctor@hospital.org', 'Value', '');
 
             uilabel(tabSignup, 'Text', 'Password *:', 'Position', [260, dlgH - 185, 140, 20]);
-            sPassFld = uieditfield(tabSignup, 'text', 'Position', [260, dlgH - 207, 220, 26], 'Placeholder', 'Minimum 8 characters');
+            sPassFld = uieditfield(tabSignup, 'text', 'Position', [260, dlgH - 207, 165, 26], ...
+                'Placeholder', 'Strong password', 'Value', '');
+            eyeBtn2 = uibutton(tabSignup, 'push', 'Text', '👁', 'Position', [430, dlgH - 207, 60, 26], ...
+                'ButtonPushedFcn', @(btn, ~) toggleEyeField(app, sPassFld, btn));
 
-            uilabel(tabSignup, 'Text', 'Specialty *:', 'Position', [20, dlgH - 245, 140, 20]);
-            sSpecFld = uidropdown(tabSignup, 'Position', [20, dlgH - 267, 220, 26], ...
+            uibutton(tabSignup, 'push', 'Text', '⚡ Suggest Strong Password', ...
+                'Position', [260, dlgH - 238, 230, 22], 'FontSize', 9.5, ...
+                'BackgroundColor', [0.93, 0.96, 0.99], ...
+                'ButtonPushedFcn', @(~, ~) applyStrongPass(app, sPassFld));
+
+            uilabel(tabSignup, 'Text', 'Specialty *:', 'Position', [20, dlgH - 250, 140, 20]);
+            sSpecFld = uidropdown(tabSignup, 'Position', [20, dlgH - 272, 225, 26], ...
                 'Items', {'Vitreo-Retina Specialist', 'General Ophthalmologist', 'Diabetic Retinopathy Fellow', 'Consultant Diabetologist'}, ...
                 'Value', 'Vitreo-Retina Specialist');
 
-            uilabel(tabSignup, 'Text', 'Experience (Years):', 'Position', [260, dlgH - 245, 140, 20]);
-            sYrsFld = uieditfield(tabSignup, 'numeric', 'Position', [260, dlgH - 267, 220, 26], 'Value', 8);
+            uilabel(tabSignup, 'Text', 'Experience (Years):', 'Position', [260, dlgH - 270, 140, 20]);
+            sYrsFld = uieditfield(tabSignup, 'numeric', 'Position', [260, dlgH - 292, 230, 26], 'Value', 8);
 
-            uilabel(tabSignup, 'Text', 'Base Hospital / Clinic *:', 'Position', [20, dlgH - 305, 200, 20]);
-            sHospFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 327, 460, 26], 'Placeholder', 'Regional Eye Institute, Medical College');
+            uilabel(tabSignup, 'Text', 'Base Hospital / Clinic *:', 'Position', [20, dlgH - 315, 200, 20]);
+            sHospFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 337, 470, 26], ...
+                'Placeholder', 'Regional Eye Institute, Medical College', 'Value', '');
 
-            uilabel(tabSignup, 'Text', 'Phone (Tele-Consultations):', 'Position', [20, dlgH - 365, 200, 20]);
-            sPhoneFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 387, 460, 26], 'Placeholder', '+91-98XXXXXXXX');
+            uilabel(tabSignup, 'Text', 'Phone (Tele-Consultations):', 'Position', [20, dlgH - 375, 200, 20]);
+            sPhoneFld = uieditfield(tabSignup, 'text', 'Position', [20, dlgH - 397, 470, 26], ...
+                'Placeholder', '+91-98XXXXXXXX', 'Value', '');
 
             uibutton(tabSignup, 'push', ...
                 'Text', '✔ Register Doctor & Save to Cloud', ...
-                'Position', [20, dlgH - 440, 460, 36], ...
+                'Position', [20, dlgH - 450, 470, 36], ...
                 'BackgroundColor', [0.12, 0.35, 0.65], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(~, ~) handleDoctorSignup(app, dlg, sEmailFld, sPassFld, sNameFld, sCodeFld, sSpecFld, sYrsFld, sHospFld, sPhoneFld));
+                'ButtonPushedFcn', @(~, ~) handleDoctorSignup(app, dlg, tg, tabLogin, sEmailFld, sPassFld, eyeBtn2, sNameFld, sCodeFld, sSpecFld, sYrsFld, sHospFld, sPhoneFld));
 
             % --- TAB 3: PASSWORD RECOVERY ---
             uilabel(tabRecover, 'Text', 'Doctor Password Recovery', ...
@@ -2479,32 +2722,69 @@ classdef RetinaScanApp < handle
                 'Position', [20, dlgH - 145, 460, 36], 'WordWrap', 'on', 'FontSize', 10);
 
             uilabel(tabRecover, 'Text', 'Registered Doctor Email *:', 'Position', [20, dlgH - 185, 200, 20], 'FontWeight', 'bold');
-            rEmailFld = uieditfield(tabRecover, 'text', 'Position', [20, dlgH - 207, 460, 28], ...
-                'Placeholder', 'doctor@hospital.org', 'Value', 'thoufikurrahaman@gmail.com');
+            rEmailFld = uieditfield(tabRecover, 'text', 'Position', [20, dlgH - 207, 470, 28], ...
+                'Placeholder', 'Enter registered email (e.g. thoufikurrahaman@gmail.com)', 'Value', '');
 
             uilabel(tabRecover, 'Text', 'New Password (for instant in-app reset):', 'Position', [20, dlgH - 245, 300, 20], 'FontWeight', 'bold');
-            rNewPassFld = uieditfield(tabRecover, 'text', 'Position', [20, dlgH - 267, 460, 28], ...
-                'Placeholder', 'Enter new secure password', 'Value', 'Doctor2026!');
+            rNewPassFld = uieditfield(tabRecover, 'text', 'Position', [20, dlgH - 267, 315, 28], ...
+                'Placeholder', 'Enter new secure password', 'Value', '');
+            eyeBtn3 = uibutton(tabRecover, 'push', 'Text', '👁 Hide', 'Position', [340, dlgH - 267, 70, 28], ...
+                'ButtonPushedFcn', @(btn, ~) toggleEyeField(app, rNewPassFld, btn));
+            uibutton(tabRecover, 'push', 'Text', '⚡ Suggest', 'Position', [415, dlgH - 267, 75, 28], ...
+                'FontSize', 9.5, 'BackgroundColor', [0.93, 0.96, 0.99], ...
+                'ButtonPushedFcn', @(~, ~) applyStrongPass(app, rNewPassFld));
 
             uibutton(tabRecover, 'push', ...
                 'Text', '🔑 Reset Password Instantly (Recommended - No Email Delay)', ...
-                'Position', [20, dlgH - 320, 460, 36], ...
+                'Position', [20, dlgH - 325, 470, 36], ...
                 'BackgroundColor', [0.08, 0.45, 0.35], 'FontColor', [1, 1, 1], 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(~, ~) handleDoctorDirectReset(app, dlg, rEmailFld, rNewPassFld));
+                'ButtonPushedFcn', @(~, ~) handleDoctorDirectReset(app, dlg, tg, tabLogin, rEmailFld, rNewPassFld, eyeBtn3));
 
             uibutton(tabRecover, 'push', ...
                 'Text', '✉ Dispatch Email Recovery Link (Supabase Auth)', ...
-                'Position', [20, dlgH - 370, 460, 32], ...
+                'Position', [20, dlgH - 375, 470, 32], ...
                 'ButtonPushedFcn', @(~, ~) handleDoctorPasswordReset(app, rEmailFld));
 
             uibutton(tabRecover, 'push', 'Text', 'Cancel & Return to Screening App', ...
-                'Position', [20, dlgH - 425, 460, 28], ...
+                'Position', [20, dlgH - 430, 470, 28], ...
                 'ButtonPushedFcn', @(~, ~) delete(dlg));
         end
 
-        function handleDoctorLogin(app, dlg, emailFld, passFld)
+        function toggleEyeField(~, fld, btn)
+            if isempty(btn.UserData)
+                btn.UserData = struct('masked', false, 'real', fld.Value);
+            end
+            st = btn.UserData;
+            if ~st.masked
+                st.real = fld.Value;
+                st.masked = true;
+                fld.Value = repmat('•', 1, length(st.real));
+                btn.Text = '👁 Reveal';
+            else
+                fld.Value = st.real;
+                st.masked = false;
+                btn.Text = '👁 Hide';
+            end
+            btn.UserData = st;
+        end
+
+        function applyStrongPass(~, fld)
+            strongPass = 'Doctor#2026!Sec';
+            fld.Value = strongPass;
+            if ~isempty(fld.UserData) && isfield(fld.UserData, 'masked') && fld.UserData.masked
+                fld.UserData.real = strongPass;
+                fld.Value = repmat('•', 1, length(strongPass));
+            end
+        end
+
+        function handleDoctorLogin(app, dlg, emailFld, passFld, eyeBtn)
             email = strtrim(emailFld.Value);
-            pass  = strtrim(passFld.Value);
+            if nargin >= 5 && ~isempty(eyeBtn) && ~isempty(eyeBtn.UserData) && isfield(eyeBtn.UserData, 'masked') && eyeBtn.UserData.masked
+                pass = strtrim(eyeBtn.UserData.real);
+            else
+                pass = strtrim(passFld.Value);
+            end
+
             if isempty(email) || isempty(pass)
                 uialert(dlg, 'Please enter both your registered email and password.', 'Login Error');
                 return;
@@ -2518,6 +2798,10 @@ classdef RetinaScanApp < handle
                 app.IsDoctorLoggedIn = true;
                 app.UserRole = 'Doctor';
                 app.AuthenticatedDoctor = prof;
+                
+                % Clear inputs so sensitive data does not persist
+                emailFld.Value = '';
+                passFld.Value = '';
                 
                 % Update reviewer pre-fills
                 if isfield(prof, 'full_name') && ~isempty(prof.full_name)
@@ -2549,13 +2833,18 @@ classdef RetinaScanApp < handle
                     'Cloud tele-review queue is now active on Page 2.'], ...
                     docTitle, docHosp), 'Doctor Portal Active');
             else
+                passFld.Value = '';
                 uialert(dlg, sprintf('Authentication failed:\n%s', sess), 'Sign In Failed');
             end
         end
 
-        function handleDoctorSignup(app, dlg, emailFld, passFld, nameFld, codeFld, specFld, yrsFld, hospFld, phoneFld)
+        function handleDoctorSignup(app, dlg, tg, tabLogin, emailFld, passFld, eyeBtn, nameFld, codeFld, specFld, yrsFld, hospFld, phoneFld)
             email = strtrim(emailFld.Value);
-            pass  = strtrim(passFld.Value);
+            if nargin >= 7 && ~isempty(eyeBtn) && ~isempty(eyeBtn.UserData) && isfield(eyeBtn.UserData, 'masked') && eyeBtn.UserData.masked
+                pass = strtrim(eyeBtn.UserData.real);
+            else
+                pass = strtrim(passFld.Value);
+            end
             name  = strtrim(nameFld.Value);
             code  = strtrim(codeFld.Value);
             hosp  = strtrim(hospFld.Value);
@@ -2578,16 +2867,30 @@ classdef RetinaScanApp < handle
             closeProgress(app, d);
 
             if ok
+                % Clear inputs so fields are empty
+                emailFld.Value = '';
+                passFld.Value = '';
+                nameFld.Value = '';
+                codeFld.Value = '';
+                hospFld.Value = '';
+                phoneFld.Value = '';
+                
+                set(tg, 'SelectedTab', tabLogin);
                 uialert(dlg, sprintf(['Doctor Profile Successfully Registered in Cloud!\n\n', ...
-                    '%s\n\nPlease switch to the "Doctor Sign In" tab to authenticate.'], msg), 'Registration Success');
+                    '%s\n\nSwitched to "Doctor Sign In" tab. Please log in with your credentials.'], msg), 'Registration Success');
             else
                 uialert(dlg, sprintf('Registration encountered an error:\n%s', msg), 'Registration Failed');
             end
         end
 
-        function handleDoctorDirectReset(app, dlg, emailFld, newPassFld)
+        function handleDoctorDirectReset(app, dlg, tg, tabLogin, emailFld, newPassFld, eyeBtn)
             email = strtrim(emailFld.Value);
-            newP  = strtrim(newPassFld.Value);
+            if nargin >= 7 && ~isempty(eyeBtn) && ~isempty(eyeBtn.UserData) && isfield(eyeBtn.UserData, 'masked') && eyeBtn.UserData.masked
+                newP = strtrim(eyeBtn.UserData.real);
+            else
+                newP = strtrim(newPassFld.Value);
+            end
+
             if isempty(email) || isempty(newP)
                 uialert(dlg, 'Please enter both your registered email and new password.', 'Validation Error');
                 return;
@@ -2598,8 +2901,13 @@ classdef RetinaScanApp < handle
             closeProgress(app, d);
 
             if ok
+                % Clear inputs
+                emailFld.Value = '';
+                newPassFld.Value = '';
+                
+                set(tg, 'SelectedTab', tabLogin);
                 uialert(dlg, sprintf(['Password Successfully Reset!\n\n', ...
-                    '%s\n\nPlease switch to the "Doctor Sign In" tab to log in.'], msg), 'Password Reset Complete');
+                    '%s\n\nSwitched to "Doctor Sign In" tab. Please log in with your new password.'], msg), 'Password Reset Complete');
             else
                 uialert(dlg, sprintf('Password reset failed:\n%s', msg), 'Reset Error');
             end
@@ -2657,19 +2965,10 @@ classdef RetinaScanApp < handle
                 n = numel(q);
                 cData = cell(n, 7);
                 for i = 1:n
-                    if iscell(q)
-                        item = q{i};
-                    else
-                        item = q(i);
-                    end
+                    item = q{i};
                     
                     % Format Priority Icon
                     prio = 'ROUTINE';
-                    if isfield(item, 'priority'), prio = upper(item.priority); end
-                    if strcmp(prio, 'URGENT'), prioStr = '🔴 URGENT';
-                    elseif strcmp(prio, 'PRIORITY'), prioStr = '🟠 PRIORITY';
-                    else, prioStr = '🟢 ROUTINE';
-                    end
                     if isfield(item, 'priority'), prio = upper(item.priority); end
                     if strcmp(prio, 'URGENT'), prioStr = '🔴 URGENT';
                     elseif strcmp(prio, 'PRIORITY'), prioStr = '🟠 PRIORITY';
@@ -2726,6 +3025,17 @@ classdef RetinaScanApp < handle
                 app.CurrentPatientAge = remoteData.age;
                 app.CurrentPatientGender = remoteData.sex;
                 app.ConsentObtained = true;
+                if isfield(remoteData, 'visit_count') && ~isempty(remoteData.visit_count)
+                    app.CurrentVisitCount = double(remoteData.visit_count);
+                else
+                    app.CurrentVisitCount = 1;
+                end
+                if isfield(remoteData, 'phone') && ~isempty(remoteData.phone)
+                    app.CurrentContact = remoteData.phone;
+                end
+                if isfield(remoteData, 'insurance_id') && ~isempty(remoteData.insurance_id)
+                    app.CurrentInsuranceID = remoteData.insurance_id;
+                end
                 
                 % Update Patient Form UI
                 app.CaseIDLabel.Text = caseCode;
@@ -2734,6 +3044,12 @@ classdef RetinaScanApp < handle
                 app.GenderDropDown.Value = 'Male';
                 if strcmpi(remoteData.sex, 'female'), app.GenderDropDown.Value = 'Female';
                 elseif strcmpi(remoteData.sex, 'other'), app.GenderDropDown.Value = 'Other';
+                end
+                if ~isempty(app.CurrentContact)
+                    app.ContactEdit.Value = regexprep(app.CurrentContact, '\D', '');
+                end
+                if ~isempty(app.CurrentInsuranceID)
+                    app.InsuranceEdit.Value = app.CurrentInsuranceID;
                 end
                 app.ConsentCheckBox.Value = true;
                 
